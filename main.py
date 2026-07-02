@@ -2,25 +2,12 @@
 """
 AI File Manager - Main Entry Point
 
-This script is the main script for the AI-File-Manager project. It should be run
-from the command line and receive an input file path from the user. It will then
-send a few snippets of the content, the file name, and any metadata to a free, fast
-AI model for processing (Groq).
+Analyzes files using an LLM (via Groq API) to classify, summarize, and recommend
+actions (Keep/Delete/Archive). Sends three strategic content snippets (beginning,
+middle, end) from each file along with metadata for AI analysis.
 
-The AI model will then return a response which will be printed to the console
-with the following information:
-1. One-sentence summary
-2. Category
-3. Importance (1-10)
-4. Keep/Delete/Archive
-5. Confidence (0-100%)
-6. Reasoning
-7. Suggested filename
-
-Output will be in Markdown format for easy reading and copying. The script will
-also save the AI response to a text file in the same directory as the input file,
-with the same name as the input file but with a .ai.txt extension.
-
+The AI returns structured JSON. The script parses it and displays a formatted
+summary to the user, and saves the raw JSON to a .ai.txt file.
 
 Before running make sure to run `pip install -r requirements.txt` to install dependencies.
 Run with: python main.py
@@ -36,7 +23,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configuration
-MAX_CONTENT_LENGTH = 4000  # Max characters to send to the AI
+SNIPPET_START = 1500    # Characters from beginning
+SNIPPET_MIDDLE = 1000   # Characters from middle
+SNIPPET_END = 1500      # Characters from end
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 MODEL = "openai/gpt-oss-20b"  # Default model, can be overridden by .env
 
@@ -66,34 +55,48 @@ def format_size(size_bytes):
     return f"{size_bytes:.2f} TB"
 
 
-def read_file_content(file_path, max_length=MAX_CONTENT_LENGTH):
-    """Read file content and truncate if necessary."""
+def read_file_content(file_path):
+    """Read file content and extract three snippets: start, middle, end."""
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
-        
-        # Truncate if too long, keeping the beginning
-        if len(content) > max_length:
-            content = content[:max_length] + "\n\n... [Content truncated]"
-        
-        return content
     except UnicodeDecodeError:
-        # Try with different encodings
         try:
             with open(file_path, "r", encoding="latin-1") as f:
                 content = f.read()
-            return content[:max_length] + ("\n\n... [Content truncated]" if len(content) > max_length else "")
         except Exception as e:
             return f"[Error reading file: {str(e)}]"
     except Exception as e:
         return f"[Error reading file: {str(e)}]"
 
+    total = len(content)
+
+    # Small file: return everything
+    if total <= SNIPPET_START + SNIPPET_END:
+        return content
+
+    # Medium file: start + end (no middle to avoid overlap)
+    if total <= SNIPPET_START + SNIPPET_MIDDLE + SNIPPET_END:
+        return (
+            content[:SNIPPET_START]
+            + "\n\n... [Content truncated] ...\n\n"
+            + content[-SNIPPET_END:]
+        )
+
+    # Large file: start + middle + end
+    mid_start = (total // 2) - (SNIPPET_MIDDLE // 2)
+    return (
+        content[:SNIPPET_START]
+        + "\n\n... [Content truncated - beginning] ...\n\n"
+        + content[mid_start:mid_start + SNIPPET_MIDDLE]
+        + "\n\n... [Content truncated - middle] ...\n\n"
+        + content[-SNIPPET_END:]
+    )
+
 
 def build_ai_prompt(filename, metadata, content):
     """Build the prompt to send to the AI."""
-    prompt = f"""You are a helpful AI assistant analyzing files for organization.
-
-Analyze the following file and provide a structured response in Markdown format.
+    prompt = f"""Analyze the following file and return ONLY valid JSON with no other text.
 
 FILE INFORMATION:
 - Filename: {metadata['filename']}
@@ -103,35 +106,19 @@ FILE INFORMATION:
 - Modified: {metadata['modified']}
 - Extension: {metadata['extension']}
 
-FILE CONTENT (first {min(len(content), MAX_CONTENT_LENGTH)} characters):
+FILE CONTENT:
 {content}
 
-Please provide your analysis in the following Markdown format:
-
-# File Analysis: {metadata['filename']}
-
-## Summary
-[One-sentence summary of the file content]
-
-## Category
-[Category such as: Document, Code, Image, Archive, School, Work, Personal, etc.]
-
-## Importance
-[Rating from 1-10 where 1 is least important and 10 is most important]
-
-## Action
-[One of: Keep, Delete, Archive]
-
-## Confidence
-[Percentage from 0-100% indicating confidence in the recommendation]
-
-## Reasoning
-[Brief explanation for the recommendation]
-
-## Suggested Filename
-[Improved filename suggestion, or keep current if appropriate]
-
-Be concise but thorough in your reasoning."""
+Return ONLY valid JSON with this exact structure (no markdown, no code fences, no extra text):
+{{
+  "summary": "One-sentence summary of the file content.",
+  "category": "Document",
+  "importance": 7,
+  "action": "Keep",
+  "confidence": 94,
+  "reasoning": "Brief explanation for the recommendation.",
+  "suggested_filename": "improved-filename.txt"
+}}"""
     return prompt
 
 
@@ -151,9 +138,16 @@ def call_groq_api(prompt):
     payload = {
         "model": MODEL,
         "messages": [
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": "You are an expert file organization assistant. Analyze files and return structured JSON only. Be consistent and deterministic in your categorizations."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
         ],
-        "temperature": 0.7,
+        "temperature": 0.2,
         "max_tokens": 2000,
         "stream": False,
     }
@@ -235,12 +229,30 @@ def main():
         print("3. Your Groq API key is valid")
         return
     
-    # Print response
+    # Parse and display JSON response
     print("\n" + "=" * 40)
     print("AI Analysis Result:")
     print("=" * 40)
-    print(ai_response)
-    print("=" * 40)
+
+    analysis = None
+    try:
+        analysis = json.loads(ai_response)
+    except json.JSONDecodeError:
+        print("Warning: Could not parse AI response as JSON. Showing raw output:")
+        print(ai_response)
+
+    if analysis is not None:
+        print(f"  Summary:      {analysis.get('summary', 'N/A')}")
+        print(f"  Category:     {analysis.get('category', 'N/A')}")
+        print(f"  Importance:   {analysis.get('importance', 'N/A')}/10")
+        print(f"  Action:       {analysis.get('action', 'N/A')}")
+        print(f"  Confidence:   {analysis.get('confidence', 'N/A')}%")
+        print(f"  Reasoning:    {analysis.get('reasoning', 'N/A')}")
+        print(f"  Suggested:    {analysis.get('suggested_filename', 'N/A')}")
+        print("=" * 40)
+
+        # Save the raw JSON as-is, not the formatted display
+        ai_response = json.dumps(analysis, indent=2)
     
     # Save response
     try:
