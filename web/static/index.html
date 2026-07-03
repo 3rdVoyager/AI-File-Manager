@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI File Manager</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <!-- ─── Top Navigation Bar ─── -->
+    <header class="topbar">
+        <div class="topbar-left">
+            <span class="logo">📁 AI File Manager</span>
+            <span class="version">v0.3</span>
+        </div>
+        <div class="topbar-center">
+            <button class="btn btn-primary" onclick="pickFolder()">📂 Scan Folder</button>
+            <button class="btn btn-secondary" onclick="pickFile()">📄 Analyze File</button>
+            <button class="btn btn-secondary" onclick="loadReport()">📥 Load Report</button>
+            <button class="btn btn-secondary" onclick="saveReport()">💾 Save Report</button>
+            <span class="separator"></span>
+            <button class="btn btn-icon" onclick="toggleDarkMode()" title="Toggle dark/light mode" id="darkModeBtn">🌙</button>
+        </div>
+        <div class="topbar-right">
+            <span class="path-display" id="pathDisplay">No folder selected</span>
+            <span class="badge" id="fileCount">0 files</span>
+        </div>
+    </header>
+
+    <!-- ─── Progress Overlay ─── -->
+    <div class="progress-overlay" id="progressOverlay" style="display: none;">
+        <div class="progress-card">
+            <div class="progress-header">
+                <span class="progress-title" id="progressTitle">Scanning...</span>
+                <button class="btn-close" onclick="hideProgress()">✕</button>
+            </div>
+            <div class="progress-file" id="progressFile"></div>
+            <div class="progress-bar-track">
+                <div class="progress-bar-fill" id="progressFill" style="width: 0%"></div>
+            </div>
+            <div class="progress-stats">
+                <span id="progressCount">0 of 0 files</span>
+                <span id="progressTime">⏱ 0s</span>
+            </div>
+            <div class="progress-details">
+                <span class="stat-cached" id="progressCached">⚡ 0 cached</span>
+                <span class="stat-new" id="progressNew">🆕 0 new</span>
+                <span class="stat-errors" id="progressErrors">✕ 0 errors</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Main Layout ─── -->
+    <div class="main-layout">
+        <!-- ─── Left: Dashboard ─── -->
+        <aside class="dashboard-panel" id="dashboardPanel">
+            <div class="dashboard-header">
+                <h2>📊 Dashboard</h2>
+                <span class="text-muted">Overview of analyzed files</span>
+            </div>
+            <div class="dashboard-cards" id="dashboardCards">
+                <div class="card summary-card">
+                    <div class="card-label">📄 Total Files</div>
+                    <div class="card-value" id="dashTotalFiles">0</div>
+                </div>
+                <div class="card summary-card">
+                    <div class="card-label">🧹 Safe to Delete</div>
+                    <div class="card-value accent-green" id="dashSafeDelete">0</div>
+                </div>
+                <div class="card summary-card">
+                    <div class="card-label">⚠ Needs Review</div>
+                    <div class="card-value accent-orange" id="dashNeedsReview">0</div>
+                </div>
+                <div class="card summary-card">
+                    <div class="card-label">📋 Duplicates</div>
+                    <div class="card-value accent-blue" id="dashDuplicates">0</div>
+                </div>
+            </div>
+
+            <div class="dashboard-section">
+                <h3>📈 Action Breakdown</h3>
+                <div id="dashActions" class="stat-bars"></div>
+            </div>
+
+            <div class="dashboard-section">
+                <h3>📂 Top Categories</h3>
+                <div id="dashCategories" class="category-list"></div>
+            </div>
+
+            <div class="dashboard-section">
+                <h3>🎯 Confidence</h3>
+                <div id="dashConfidence" class="stat-bars"></div>
+            </div>
+
+            <div class="dashboard-section">
+                <h3>🏷 Tags</h3>
+                <div id="dashTags" class="tag-cloud"></div>
+            </div>
+
+            <div class="dashboard-empty" id="dashboardEmpty">
+                <div class="empty-icon">📊</div>
+                <div class="empty-text">No data yet</div>
+                <div class="empty-subtext">Scan a folder to see your dashboard</div>
+            </div>
+        </aside>
+
+        <!-- ─── Center: Results Table ─── -->
+        <main class="results-panel">
+            <!-- Filter bar -->
+            <div class="filter-bar">
+                <div class="filter-group">
+                    <span class="filter-icon">🔍</span>
+                    <input type="text" class="filter-input" id="searchInput" placeholder="Search files..." oninput="applyFilters()">
+                </div>
+                <div class="filter-group">
+                    <label>Category</label>
+                    <select class="filter-select" id="filterCategory" onchange="applyFilters()">
+                        <option value="">All</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Action</label>
+                    <select class="filter-select" id="filterAction" onchange="applyFilters()">
+                        <option value="">All</option>
+                        <option value="Keep">Keep</option>
+                        <option value="Delete">Delete</option>
+                        <option value="Archive">Archive</option>
+                        <option value="Review">Review</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Lifecycle</label>
+                    <select class="filter-select" id="filterLifecycle" onchange="applyFilters()">
+                        <option value="">All</option>
+                        <option value="Active">Active</option>
+                        <option value="Dormant">Dormant</option>
+                        <option value="Archived">Archived</option>
+                        <option value="Transient">Transient</option>
+                    </select>
+                </div>
+                <button class="btn btn-sm" onclick="clearFilters()">✕ Clear</button>
+                <span class="result-count" id="resultCount"></span>
+            </div>
+
+            <!-- Table -->
+            <div class="table-container">
+                <table class="results-table" id="resultsTable">
+                    <thead>
+                        <tr>
+                            <th onclick="sortBy('file')" class="sortable">File <span class="sort-arrow" id="sortFile"></span></th>
+                            <th onclick="sortBy('category')" class="sortable">Category <span class="sort-arrow" id="sortCategory"></span></th>
+                            <th onclick="sortBy('subcategory')" class="sortable">Subcategory <span class="sort-arrow" id="sortSubcategory"></span></th>
+                            <th onclick="sortBy('project')" class="sortable">Project <span class="sort-arrow" id="sortProject"></span></th>
+                            <th onclick="sortBy('action')" class="sortable">Action <span class="sort-arrow" id="sortAction"></span></th>
+                            <th onclick="sortBy('importance')" class="sortable">Imp. <span class="sort-arrow" id="sortImportance"></span></th>
+                            <th onclick="sortBy('lifecycle')" class="sortable">Lifecycle <span class="sort-arrow" id="sortLifecycle"></span></th>
+                            <th onclick="sortBy('confidence')" class="sortable">Conf. <span class="sort-arrow" id="sortConfidence"></span></th>
+                            <th>Tags</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultsBody">
+                        <tr class="empty-row">
+                            <td colspan="9">
+                                <div class="empty-state">
+                                    <div class="empty-icon">📂</div>
+                                    <div class="empty-text">No files analyzed yet</div>
+                                    <div class="empty-subtext">Click "Scan Folder" to get started</div>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
+
+        <!-- ─── Right: Detail Panel ─── -->
+        <aside class="detail-panel" id="detailPanel">
+            <div class="detail-empty" id="detailEmpty">
+                <div class="empty-icon">👆</div>
+                <div class="empty-text">Select a file</div>
+                <div class="empty-subtext">Click a row to view details</div>
+            </div>
+            <div class="detail-content" id="detailContent" style="display: none;">
+                <div class="detail-header">
+                    <span class="detail-icon">📄</span>
+                    <h3 class="detail-filename" id="detailFilename">filename.txt</h3>
+                </div>
+                
+                <div class="detail-section">
+                    <h4>📋 File Info</h4>
+                    <div class="detail-grid">
+                        <div class="detail-row"><span class="detail-label">Path:</span><span class="detail-value" id="detailPath">-</span></div>
+                        <div class="detail-row"><span class="detail-label">Size:</span><span class="detail-value" id="detailSize">-</span></div>
+                        <div class="detail-row"><span class="detail-label">Type:</span><span class="detail-value" id="detailType">-</span></div>
+                    </div>
+                </div>
+
+                <div class="detail-section">
+                    <h4>🤖 AI Analysis</h4>
+                    <div class="detail-grid">
+                        <div class="detail-row"><span class="detail-label">Summary:</span><span class="detail-value" id="detailSummary">-</span></div>
+                        <div class="detail-row"><span class="detail-label">Category:</span><span class="detail-value" id="detailCategory">-</span></div>
+                        <div class="detail-row"><span class="detail-label">Project:</span><span class="detail-value" id="detailProject">-</span></div>
+                        <div class="detail-row"><span class="detail-label">Action:</span><span class="detail-value" id="detailAction">-</span></div>
+                        <div class="detail-row"><span class="detail-label">Confidence:</span><span class="detail-value" id="detailConfidence">-</span></div>
+                        <div class="detail-row"><span class="detail-label">Lifecycle:</span><span class="detail-value" id="detailLifecycle">-</span></div>
+                        <div class="detail-row"><span class="detail-label">Importance:</span><span class="detail-value" id="detailImportance">-</span></div>
+                        <div class="detail-row"><span class="detail-label">Sentimental:</span><span class="detail-value" id="detailSentimental">-</span></div>
+                    </div>
+                </div>
+
+                <div class="detail-section">
+                    <h4>🏷 Tags</h4>
+                    <div class="tag-cloud" id="detailTags"></div>
+                </div>
+
+                <div class="detail-section">
+                    <h4>💡 Reasoning</h4>
+                    <p class="detail-reasoning" id="detailReasoning">-</p>
+                </div>
+
+                <div class="detail-section">
+                    <h4>📝 Preview</h4>
+                    <pre class="detail-preview" id="detailPreview">[Select a file to preview]</pre>
+                </div>
+
+                <div class="detail-actions">
+                    <button class="btn btn-sm" onclick="explainRecommendation()">🤖 Explain</button>
+                    <button class="btn btn-sm" onclick="findSimilar()">🔍 Find Similar</button>
+                    <button class="btn btn-sm" onclick="showInExplorer()">📂 Show in Explorer</button>
+                    <button class="btn btn-sm" onclick="copyPath()">📋 Copy Path</button>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- ─── Query Bar ─── -->
+    <footer class="query-bar">
+        <div class="query-input-group">
+            <span class="query-icon">🔍</span>
+            <input type="text" class="query-input" id="queryInput" placeholder="Ask a question about your files..." onkeydown="if(event.key==='Enter')submitQuery()">
+            <button class="btn btn-primary btn-ask" onclick="submitQuery()">Ask AI</button>
+        </div>
+        <div class="query-presets">
+            <button class="btn btn-chip" onclick="setQuery('Show me files that are probably safe to delete')">🧹 Safe to delete</button>
+            <button class="btn btn-chip" onclick="setQuery('Group the files by project')">📂 Group by project</button>
+            <button class="btn btn-chip" onclick="setQuery('List all installer or setup files')">📦 Find installers</button>
+            <button class="btn btn-chip" onclick="setQuery('Show me files that need manual review')">⚠ Needs review</button>
+            <button class="btn btn-chip" onclick="setQuery('Give me a summary of all files')">📊 Summary</button>
+        </div>
+        <div class="query-result" id="queryResult" style="display: none;"></div>
+    </footer>
+
+    <!-- ─── Modal for folder picker ─── -->
+    <div class="modal-overlay" id="folderModal" style="display: none;">
+        <div class="modal-card">
+            <h3>📂 Select Folder</h3>
+            <p>Enter the full path to the folder you want to scan:</p>
+            <input type="text" class="modal-input" id="folderPathInput" placeholder="C:/Users/YourName/Documents">
+            <div class="modal-actions">
+                <button class="btn btn-primary" onclick="startScan()">Scan</button>
+                <button class="btn btn-secondary" onclick="closeModal('folderModal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Modal for file picker ─── -->
+    <div class="modal-overlay" id="fileModal" style="display: none;">
+        <div class="modal-card">
+            <h3>📄 Analyze File</h3>
+            <p>Enter the full path to the file you want to analyze:</p>
+            <input type="text" class="modal-input" id="filePathInput" placeholder="C:/Users/YourName/Documents/file.txt">
+            <div class="modal-actions">
+                <button class="btn btn-primary" onclick="startFileAnalysis()">Analyze</button>
+                <button class="btn btn-secondary" onclick="closeModal('fileModal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Modal for report load ─── -->
+    <div class="modal-overlay" id="reportModal" style="display: none;">
+        <div class="modal-card">
+            <h3>📥 Load Report</h3>
+            <p>Enter the path to a saved batch results JSON file:</p>
+            <input type="text" class="modal-input" id="reportPathInput" placeholder="reports/batch_myfolder_20260702.json">
+            <div class="modal-actions">
+                <button class="btn btn-primary" onclick="startLoadReport()">Load</button>
+                <button class="btn btn-secondary" onclick="closeModal('reportModal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── Modal for query result ─── -->
+    <div class="modal-overlay" id="queryResultModal" style="display: none;">
+        <div class="modal-card modal-wide">
+            <div class="modal-header">
+                <h3>🤖 Query Result</h3>
+                <button class="btn-close" onclick="closeModal('queryResultModal')">✕</button>
+            </div>
+            <div class="modal-body" id="queryResultBody"></div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
