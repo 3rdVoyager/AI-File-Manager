@@ -3,24 +3,24 @@
 AI File Manager - Main Entry Point
 
 Analyzes files using an LLM (via Groq API) to classify, summarize, and recommend
-actions (Keep/Delete/Archive). Sends three strategic content snippets (beginning,
-middle, end) from each file along with metadata for AI analysis.
+actions (Keep/Delete/Archive/Review). Uses three strategic content snippets
+(beginning, middle, end) from each file along with metadata for AI analysis.
 
-Supports single-file analysis (`python main.py` then enter a path) and batch
-folder analysis (`python main.py` then enter `folder:C:/path/to/folder`).
+Supports single-file analysis, batch folder analysis, and interactive query mode.
 
-After a batch scan, enters interactive query mode where you can ask natural-language
-questions about the analyzed files (e.g. "show me all inactive Python projects").
-
-Reports are saved as JSON to the reports/ directory.
+Usage:
+    python main.py              # Interactive CLI
+    python main.py --gui        # Launch GUI
 """
 
 import os
+import sys
 import json
 from pathlib import Path
 
 from scripts.config import GROQ_API_KEY
-from scripts.file_utils import get_file_metadata, read_file_content, scan_directory
+from scripts.file_utils import get_file_metadata_dict, read_file_content, scan_directory
+from scripts.analysis import analyze_file, scan_and_analyze
 from scripts.ai_client import analyze_single_file
 from scripts.reporter import (
     save_ai_response,
@@ -30,11 +30,26 @@ from scripts.reporter import (
     print_batch_summary,
 )
 from scripts.query_engine import run_query_loop
+from scripts.cache import close as close_cache
 
 
 def main():
     """Main entry point."""
-    print("AI File Manager - Version 0.2")
+    # Check for --gui flag
+    if len(sys.argv) > 1 and sys.argv[1] == "--gui":
+        _launch_gui()
+        return
+
+    if not GROQ_API_KEY:
+        print("Error: GROQ_API_KEY not set.")
+        print("Create a .env file with GROQ_API_KEY=your_api_key_here")
+        print("Get a key from https://console.groq.com/keys")
+        # Still allow GUI launch
+        if len(sys.argv) > 1 and sys.argv[1] == "--gui":
+            _launch_gui()
+        return
+
+    print("AI File Manager - Version 0.3")
     print("=" * 40)
     
     # Get input from user
@@ -62,40 +77,39 @@ def main():
     raw_path = raw_path.replace('\\', '/')
     resolved_path = os.path.abspath(os.path.normpath(raw_path))
     
-    if is_reports:
-        # Load a previous batch results file for querying
-        if not os.path.isfile(resolved_path):
-            print(f"Error: Reports file not found: {resolved_path}")
-            return
-        _run_reports_mode(resolved_path)
-    elif is_folder:
-        if not os.path.isdir(resolved_path):
-            print(f"Error: Directory not found: {resolved_path}")
-            return
-        _run_batch_mode(resolved_path)
-    else:
-        if not os.path.isfile(resolved_path):
-            print(f"Error: File not found: {resolved_path}")
-            print("\nTip: Use forward slashes (/) or double backslashes (\\\\) in Windows paths")
-            print("Example: C:/Users/joshi/Downloads/test.txt")
-            print("Or use folder: prefix to scan a directory, e.g. folder:C:/Users/joshi/Downloads")
-            print("Or use reports: prefix to query a saved batch, e.g. reports:reports/batch_test_20260702.json")
-            return
-        _run_single_file_mode(resolved_path)
+    try:
+        if is_reports:
+            _run_reports_mode(resolved_path)
+        elif is_folder:
+            _run_batch_mode(resolved_path)
+        else:
+            _run_single_file_mode(resolved_path)
+    finally:
+        close_cache()
+
+
+def _launch_gui():
+    """Launch the graphical user interface."""
+    try:
+        import gui
+        gui.main()
+    except ImportError:
+        print("Error: gui.py not found. Make sure it's in the project root.")
+    except Exception as e:
+        print(f"Error launching GUI: {e}")
 
 
 def _run_single_file_mode(file_path):
     """Handle analysis of a single file."""
-    metadata = get_file_metadata(file_path)
+    metadata = get_file_metadata_dict(file_path)
     print(f"\nAnalyzing: {file_path}")
     print("-" * 40)
     print(f"File: {metadata['filename']}")
     print(f"Size: {metadata['size_human']}")
-    print(f"Modified: {metadata['modified']}")
     
     print("\nContacting AI for analysis...")
     try:
-        analysis, raw_json = analyze_single_file(file_path, read_file_content, get_file_metadata)
+        analysis, raw_json, was_cached = analyze_file(file_path)
     except Exception as e:
         print(f"\nError: {str(e)}")
         print("\nPlease make sure:")
@@ -105,6 +119,8 @@ def _run_single_file_mode(file_path):
         return
     
     if analysis is not None:
+        if was_cached:
+            print("  (Cached result)")
         print_single_analysis(analysis)
     else:
         print("Warning: Could not parse AI response as JSON. Showing raw output:")
@@ -121,55 +137,49 @@ def _run_single_file_mode(file_path):
 def _run_batch_mode(directory_path):
     """Handle batch analysis of all supported files in a directory, then enter query mode."""
     print(f"\nScanning: {directory_path}")
-    files = scan_directory(directory_path)
     
-    if not files:
-        print("No supported files found.")
-        return
-    
-    print(f"Found {len(files)} files")
-    print()
-    
-    results = []
-    errors = []
-    total = len(files)
-    
-    print("Analyzing...")
-    for i, file_path in enumerate(files, 1):
-        filename = Path(file_path).name
-        print_progress_bar(i, total, filename)
-        
-        try:
-            analysis, raw_json = analyze_single_file(file_path, read_file_content, get_file_metadata)
-            if analysis is not None:
-                # Place filename prominently at the top for readability
-                entry = {
-                    "file": filename,
-                    "path": file_path,
-                }
-                entry.update(analysis)
-                results.append(entry)
-            else:
-                errors.append({"file": filename, "path": file_path, "error": "Failed to parse AI response"})
-        except Exception as e:
-            errors.append({"file": filename, "path": file_path, "error": str(e)})
+    # Use the new pipeline
+    results, errors, summary = scan_and_analyze(
+        directory_path,
+        on_file_complete=lambda i, total, fname: print_progress_bar(i, total, fname)
+    )
     
     print()  # newline after progress bar
     
     # Print summary
-    print_batch_summary(total, results, errors)
+    print(f"\n  Total files:   {summary.total_files}")
+    print(f"  Analyzed:      {summary.analyzed}")
+    print(f"  Cached:        {summary.cached}")
+    print(f"  Errors:        {summary.errors}")
+    print(f"  Duration:      {summary.duration_seconds:.1f}s")
     
-    # Save combined results to reports directory
+    print()
+    print("Actions recommended:")
+    print(f"  {'Keep':<12} {summary.keep_count}")
+    print(f"  {'Delete':<12} {summary.delete_count}")
+    print(f"  {'Archive':<12} {summary.archive_count}")
+    print(f"  {'Review':<12} {summary.review_count}")
+    
+    if errors:
+        print()
+        print("Errors:")
+        for e in errors:
+            print(f"  {Path(e['file']).name}: {e['error']}")
+    
+    # Convert AnalysisResult objects to dicts for query engine compatibility
+    results_dicts = [r.to_dict() for r in results]
+    
+    # Save combined results
     output_path = None
     try:
-        output_path = save_batch_results(results, errors, directory_path, total)
-        print(f"\nCombined results saved to: {output_path}")
+        output_path = save_batch_results(results_dicts, errors, directory_path, total)
+        print(f"\nResults saved to: {output_path}")
     except Exception as e:
-        print(f"Warning: Could not save combined results: {str(e)}")
+        print(f"\nWarning: Could not save combined results: {str(e)}")
     
     # Enter query mode
-    if results:
-        run_query_loop(results)
+    if results_dicts:
+        run_query_loop(results_dicts)
     else:
         print("\nNo files were analyzed successfully. Nothing to query.")
 

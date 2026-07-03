@@ -1,5 +1,8 @@
 """
 Output formatting and report persistence.
+
+Handles saving analysis results as JSON, printing formatted output
+to the terminal, and generating summary statistics.
 """
 
 import json
@@ -9,13 +12,13 @@ from datetime import datetime
 from scripts.config import REPORTS_DIR
 
 
-def get_reports_dir():
+def get_reports_dir() -> Path:
     """Ensure the reports directory exists and return its path."""
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     return REPORTS_DIR
 
 
-def save_ai_response(file_path, ai_response):
+def save_ai_response(file_path: str, ai_response: str) -> str:
     """Save the AI response as a .json file in the reports/ directory."""
     input_path = Path(file_path)
     reports_dir = get_reports_dir()
@@ -33,7 +36,7 @@ def save_ai_response(file_path, ai_response):
     return str(output_path)
 
 
-def save_batch_results(results, errors, directory_path, total_files):
+def save_batch_results(results: list, errors: list, directory_path: str, total_files: int) -> str:
     """Save the combined batch results JSON to the reports directory."""
     output = {
         "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -55,7 +58,7 @@ def save_batch_results(results, errors, directory_path, total_files):
     return str(output_path)
 
 
-def print_progress_bar(current, total, filename, bar_width=20):
+def print_progress_bar(current: int, total: int, filename: str, bar_width: int = 20):
     """Print a single-line progress bar with filename."""
     filled = int(bar_width * current / total)
     bar = "█" * filled + "░" * (bar_width - filled)
@@ -64,14 +67,19 @@ def print_progress_bar(current, total, filename, bar_width=20):
     print(f"\r  [{bar}] {current}/{total}  {name:<40}", end="", flush=True)
 
 
-def print_single_analysis(analysis):
+def print_single_analysis(analysis: dict):
     """Print a parsed analysis dict in human-readable format."""
     print("=" * 40)
     print("AI Analysis Result:")
     print("=" * 40)
     print(f"  Summary:      {analysis.get('summary', 'N/A')}")
     print(f"  Category:     {analysis.get('category', 'N/A')}")
+    print(f"  Subcategory:  {analysis.get('subcategory', 'N/A')}")
+    print(f"  Project:      {analysis.get('project', 'N/A')}")
+    print(f"  Tags:         {', '.join(analysis.get('tags', [])) or 'N/A'}")
     print(f"  Importance:   {analysis.get('importance', 'N/A')}/10")
+    print(f"  Sentimental:  {analysis.get('sentimental_value', 'N/A')}/10")
+    print(f"  Lifecycle:    {analysis.get('lifecycle', 'N/A')}")
     print(f"  Action:       {analysis.get('action', 'N/A')}")
     print(f"  Confidence:   {analysis.get('confidence', 'N/A')}%")
     print(f"  Reasoning:    {analysis.get('reasoning', 'N/A')}")
@@ -79,7 +87,7 @@ def print_single_analysis(analysis):
     print("=" * 40)
 
 
-def print_batch_summary(total, results, errors):
+def print_batch_summary(total: int, results: list, errors: list):
     """Print a summary table after batch mode completes."""
     print("\n" + "=" * 40)
     print("Batch Analysis Complete")
