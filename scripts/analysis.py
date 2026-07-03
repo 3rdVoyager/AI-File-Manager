@@ -24,16 +24,146 @@ from scripts.file_utils import (
     scan_directory, compute_file_hash, is_large_file
 )
 from scripts.reporter import save_batch_results
+from scripts.categorization import (
+    INSTALLER_PATTERNS, SCREENSHOT_PATTERNS, TEMP_PATTERNS,
+    infer_project_name
+)
 
 
-def analyze_file(file_path: str, use_cache: bool = True) -> Tuple[Optional[dict], str, bool]:
+# Windows system files that should never be sent to AI
+WINDOWS_SYSTEM_FILES = {
+    "thumbs.db", "desktop.ini", "ehthumbs.db", "ehthumbs_vista.db",
+    "folder.jpg", "autorun.inf", "swapfile.sys", "pagefile.sys",
+    "hiberfil.sys",
+}
+
+# Config-like file extensions for tiny-file skip
+TINY_CONFIG_EXTENSIONS = {
+    ".gitignore", ".dockerignore", ".editorconfig", ".env", ".env.example",
+    ".env.local", ".env.development", ".env.production", ".env.test",
+    ".flake8", ".pylintrc", ".isort.cfg", ".prettierrc", ".eslintrc",
+    ".babelrc", ".npmrc", ".yaml", ".yml", ".toml", ".ini", ".cfg",
+    ".conf", ".gitattributes", ".gitmodules", ".npmignore",
+}
+
+# Full archive extensions (binary containers — no AI needed)
+ARCHIVE_EXTENSIONS = {
+    ".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar",
+    ".tar.gz", ".tar.bz2", ".tar.xz",
+}
+
+
+def pre_analyze_filter(file_path: str) -> Optional[dict]:
     """
-    Analyze a single file with caching support.
+    Run cheap, non-AI checks on a file. If the disposition is obvious,
+    return a minimal analysis dict and skip the API call entirely.
     
-    Returns: (analysis_dict_or_None, raw_json_or_error, was_cached)
+    Checks (in order):
+    1. Windows system files → skip, mark System/Config
+    2. Tiny config files (< 100 bytes) → skip, mark Config with low confidence
+    3. Archives (.zip, .tar.gz, etc.) → skip, mark Data/Archive
+    4. Installers (.exe, .msi, etc.) → skip, mark Installer
+    5. Duplicate by content hash → skip, mark Duplicate
+    
+    Returns None if AI judgment is still needed.
+    """
+    path = Path(file_path)
+    filename_lower = path.name.lower()
+    ext_lower = path.suffix.lower()
+    
+    # 1) Windows system files
+    if filename_lower in WINDOWS_SYSTEM_FILES:
+        return {
+            "summary": f"Windows system file: {path.name}",
+            "category": "System",
+            "subcategory": "Config",
+            "project": "",
+            "tags": ["lifecycle:transient", "type:temp", "source:system-generated"],
+            "importance": 1,
+            "sentimental_value": 1,
+            "lifecycle": "Transient",
+            "action": "Keep",
+            "confidence": 100,
+            "reasoning": "Recognized Windows system/managed file; no analysis needed.",
+            "suggested_filename": "",
+            "requires_review": False,
+        }
+    
+    # 2) Tiny config files (< 100 bytes)
+    try:
+        size = path.stat().st_size
+        if ext_lower in TINY_CONFIG_EXTENSIONS and size < 100:
+            return {
+                "summary": f"Tiny configuration file ({size} bytes).",
+                "category": "System",
+                "subcategory": "Config",
+                "project": "",
+                "tags": ["lifecycle:active", "type:config"],
+                "importance": 3,
+                "sentimental_value": 1,
+                "lifecycle": "Active",
+                "action": "Review",
+                "confidence": 60,
+                "reasoning": f"File is only {size} bytes; likely a settings stub.",
+                "suggested_filename": "",
+                "requires_review": True,
+            }
+    except OSError:
+        pass
+    
+    # 3) Archives
+    if ext_lower in ARCHIVE_EXTENSIONS:
+        return {
+            "summary": f"Archive file: {path.name}",
+            "category": "Data",
+            "subcategory": "Archive",
+            "project": infer_project_name(file_path) or "",
+            "tags": ["lifecycle:active", "type:asset"],
+            "importance": 5,
+            "sentimental_value": 1,
+            "lifecycle": "Active",
+            "action": "Review",
+            "confidence": 100,
+            "reasoning": "Binary container format — content not directly human-readable.",
+            "suggested_filename": "",
+            "requires_review": False,
+        }
+    
+    # 4) Installers
+    if any(p.search(path.name) for p in INSTALLER_PATTERNS) or ext_lower in (
+        ".exe", ".msi", ".dmg", ".pkg", ".deb", ".rpm", ".appimage"
+    ):
+        return {
+            "summary": f"Executable installer: {path.name}",
+            "category": "Installer",
+            "subcategory": "Setup",
+            "project": "",
+            "tags": ["lifecycle:transient", "type:installer", "source:downloaded"],
+            "importance": 3,
+            "sentimental_value": 1,
+            "lifecycle": "Transient",
+            "action": "Review",
+            "confidence": 100,
+            "reasoning": "Recognized installer/package format.",
+            "suggested_filename": "",
+            "requires_review": True,
+        }
+    
+    # 5) Duplicate detection is handled at batch level in scan_and_analyze
+    #    (requires seeing other results first), so we return None here.
+    
+    return None
+
+
+def analyze_file(file_path: str, use_cache: bool = True) -> Tuple[Optional[dict], str, bool, bool]:
+    """
+    Analyze a single file with caching and pre-filtering support.
+    
+    Returns: (analysis_dict_or_None, raw_json_or_error, was_cached, was_prefiltered)
     """
     stat_result = None
     cached = False
+    prefiltered = False
     
     # Check cache first
     if use_cache:
@@ -41,9 +171,28 @@ def analyze_file(file_path: str, use_cache: bool = True) -> Tuple[Optional[dict]
             stat_result = os.stat(file_path)
             cached_analysis = get_cached_analysis(file_path, stat_result)
             if cached_analysis is not None:
-                return cached_analysis, json.dumps(cached_analysis, indent=2), True
+                return cached_analysis, json.dumps(cached_analysis, indent=2), True, False
         except OSError:
             pass
+    
+    # Pre-AI filter: skip API if obvious from filename/extension
+    prefiltered_result = pre_analyze_filter(file_path)
+    if prefiltered_result is not None:
+        prefiltered = True
+        analysis = prefiltered_result
+        raw = json.dumps(prefiltered_result, indent=2)
+        
+        # Store prefiltered result in cache (still useful to avoid re-checking)
+        if use_cache:
+            try:
+                if stat_result is None:
+                    stat_result = os.stat(file_path)
+                file_hash = compute_file_hash(file_path)
+                set_cached_analysis(file_path, stat_result, file_hash, analysis)
+            except Exception:
+                pass
+        
+        return analysis, raw, cached, prefiltered
     
     # API call
     analysis, raw = analyze_single_file(
@@ -60,7 +209,26 @@ def analyze_file(file_path: str, use_cache: bool = True) -> Tuple[Optional[dict]
         except Exception:
             pass  # Cache failure is non-critical
     
-    return analysis, raw, cached
+    return analysis, raw, cached, prefiltered
+
+
+def _compute_duplicate_analysis(file_path: str, original_path: str) -> dict:
+    """Generate analysis for a duplicate file without API call."""
+    return {
+        "summary": f"Duplicate of {Path(original_path).name}",
+        "category": "Other",
+        "subcategory": "Duplicate",
+        "project": "",
+        "tags": ["lifecycle:dormant", "type:duplicate"],
+        "importance": 2,
+        "sentimental_value": 1,
+        "lifecycle": "Dormant",
+        "action": "Review",
+        "confidence": 100,
+        "reasoning": f"Identical content to {original_path}; no AI analysis needed.",
+        "suggested_filename": "",
+        "requires_review": True,
+    }
 
 
 def scan_and_analyze(
@@ -103,6 +271,9 @@ def scan_and_analyze(
         except Exception:
             pass
     
+    # Track content hashes to skip AI for duplicates
+    seen_content_hashes = {}  # hash -> first file_path that had it
+    
     # Phase 2: Analyze each file
     for i, file_path in enumerate(files, 1):
         filename = Path(file_path).name
@@ -116,9 +287,36 @@ def scan_and_analyze(
         if on_file_complete:
             on_file_complete(i, total, filename)
         
+        # Check if this is a duplicate before analysis
+        is_duplicate = False
+        duplicate_of = None
         try:
-            analysis, raw, was_cached = analyze_file(file_path, use_cache=use_cache)
-            
+            file_hash = compute_file_hash(file_path)
+            if file_hash and file_hash in seen_content_hashes:
+                is_duplicate = True
+                duplicate_of = seen_content_hashes[file_hash]
+        except Exception:
+            pass
+        
+        try:
+            # If it's a known duplicate, skip AI entirely
+            if is_duplicate and duplicate_of:
+                duplicate_analysis = _compute_duplicate_analysis(file_path, duplicate_of)
+                analysis = duplicate_analysis
+                raw = json.dumps(duplicate_analysis, indent=2)
+                was_cached = False
+                was_prefiltered = False  # It's a prefilter, but we track it differently
+                
+                # Store in cache so we don't recompute hash next time
+                if use_cache:
+                    try:
+                        stat_result = os.stat(file_path)
+                        file_hash = compute_file_hash(file_path)
+                        set_cached_analysis(file_path, stat_result, file_hash, analysis)
+                    except Exception:
+                        pass
+            else:
+                analysis, raw, was_cached, was_prefiltered = analyze_file(file_path, use_cache=use_cache)
             if was_cached:
                 progress.cached += 1
             else:
@@ -142,8 +340,18 @@ def scan_and_analyze(
                     reasoning=analysis.get("reasoning", ""),
                     suggested_filename=analysis.get("suggested_filename", ""),
                     requires_review=analysis.get("requires_review", False),
+                    prefiltered=was_prefiltered,
                 )
                 results.append(entry)
+                
+                # Track content hash for future duplicate detection
+                try:
+                    file_hash = compute_file_hash(file_path)
+                    if file_hash:
+                        if file_hash not in seen_content_hashes:
+                            seen_content_hashes[file_hash] = file_path
+                except Exception:
+                    pass
             else:
                 errors.append({
                     "file": filename,
@@ -162,7 +370,8 @@ def scan_and_analyze(
     # Phase 3: Aggregate results
     summary = _aggregate_results(results, errors, total, directory_path, start_time)
     summary.cached = progress.cached
-    summary.new_files = total - len(previously_analyzed)
+    summary.scanned = progress.scanned
+    summary.prefiltered = sum(1 for r in results if r.prefiltered)
     
     progress.status = "done"
     if progress_callback:

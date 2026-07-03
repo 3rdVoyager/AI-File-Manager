@@ -120,14 +120,23 @@ def is_large_file(file_path: str) -> bool:
 def get_supported_extensions() -> set:
     """Return a set of file extensions that can be analyzed."""
     return {
+        # Text / docs
         ".txt", ".md", ".rst", ".log",
+        # Code
         ".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".c", ".cpp", ".h",
         ".hpp", ".cs", ".go", ".rs", ".rb", ".php", ".swift", ".kt",
         ".html", ".htm", ".css", ".scss", ".less", ".sass",
+        # Config / data
         ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
         ".csv", ".tsv",
+        # Shell
         ".sh", ".bat", ".ps1",
+        # Other text formats
         ".sql", ".r", ".m", ".pl", ".lua",
+        # Archives (prefiltered — no AI needed)
+        ".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar",
+        # Installers (prefiltered — no AI needed)
+        ".exe", ".msi", ".dmg", ".pkg", ".deb", ".rpm", ".appimage",
     }
 
 

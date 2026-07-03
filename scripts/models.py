@@ -77,6 +77,9 @@ class AnalysisResult:
     duplicate_group: str = ""
     duplicate_of: list = field(default_factory=list)
     
+    # Optimization
+    prefiltered: bool = False
+    
     def to_dict(self) -> dict:
         """Serialize to a plain dict for JSON output."""
         return asdict(self)
@@ -97,6 +100,8 @@ class BatchSummary:
     errors: int = 0
     cached: int = 0
     new_files: int = 0
+    prefiltered: int = 0
+    scanned: int = 0
     
     # Action counts
     keep_count: int = 0
