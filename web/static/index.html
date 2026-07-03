@@ -7,237 +7,655 @@
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-    <!-- ─── Top Navigation Bar ─── -->
-    <header class="topbar">
-        <div class="topbar-left">
-            <span class="logo">📁 AI File Manager</span>
-            <span class="version">v0.3</span>
-        </div>
-        <div class="topbar-center">
-            <button class="btn btn-primary" onclick="pickFolder()">📂 Scan Folder</button>
-            <button class="btn btn-secondary" onclick="pickFile()">📄 Analyze File</button>
-            <button class="btn btn-secondary" onclick="loadReport()">📥 Load Report</button>
-            <button class="btn btn-secondary" onclick="saveReport()">💾 Save Report</button>
-            <span class="separator"></span>
-            <button class="btn btn-icon" onclick="toggleDarkMode()" title="Toggle dark/light mode" id="darkModeBtn">🌙</button>
-        </div>
-        <div class="topbar-right">
-            <span class="path-display" id="pathDisplay">No folder selected</span>
-            <span class="badge" id="fileCount">0 files</span>
-        </div>
-    </header>
-
-    <!-- ─── Progress Overlay ─── -->
-    <div class="progress-overlay" id="progressOverlay" style="display: none;">
-        <div class="progress-card">
-            <div class="progress-header">
-                <span class="progress-title" id="progressTitle">Scanning...</span>
-                <button class="btn-close" onclick="hideProgress()">✕</button>
-            </div>
-            <div class="progress-file" id="progressFile"></div>
-            <div class="progress-bar-track">
-                <div class="progress-bar-fill" id="progressFill" style="width: 0%"></div>
-            </div>
-            <div class="progress-stats">
-                <span id="progressCount">0 of 0 files</span>
-                <span id="progressTime">⏱ 0s</span>
-            </div>
-            <div class="progress-details">
-                <span class="stat-cached" id="progressCached">⚡ 0 cached</span>
-                <span class="stat-new" id="progressNew">🆕 0 new</span>
-                <span class="stat-errors" id="progressErrors">✕ 0 errors</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- ─── Main Layout ─── -->
-    <div class="main-layout">
-        <!-- ─── Left: Dashboard ─── -->
-        <aside class="dashboard-panel" id="dashboardPanel">
-            <div class="dashboard-header">
-                <h2>📊 Dashboard</h2>
-                <span class="text-muted">Overview of analyzed files</span>
-            </div>
-            <div class="dashboard-cards" id="dashboardCards">
-                <div class="card summary-card">
-                    <div class="card-label">📄 Total Files</div>
-                    <div class="card-value" id="dashTotalFiles">0</div>
-                </div>
-                <div class="card summary-card">
-                    <div class="card-label">🧹 Safe to Delete</div>
-                    <div class="card-value accent-green" id="dashSafeDelete">0</div>
-                </div>
-                <div class="card summary-card">
-                    <div class="card-label">⚠ Needs Review</div>
-                    <div class="card-value accent-orange" id="dashNeedsReview">0</div>
-                </div>
-                <div class="card summary-card">
-                    <div class="card-label">📋 Duplicates</div>
-                    <div class="card-value accent-blue" id="dashDuplicates">0</div>
+    <!-- ─── Layout Container ─── -->
+    <div class="app-layout">
+        <!-- ─── Left Sidebar ─── -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/>
+                    </svg>
+                    <span>AI File Manager</span>
                 </div>
             </div>
-
-            <div class="dashboard-section">
-                <h3>📈 Action Breakdown</h3>
-                <div id="dashActions" class="stat-bars"></div>
-            </div>
-
-            <div class="dashboard-section">
-                <h3>📂 Top Categories</h3>
-                <div id="dashCategories" class="category-list"></div>
-            </div>
-
-            <div class="dashboard-section">
-                <h3>🎯 Confidence</h3>
-                <div id="dashConfidence" class="stat-bars"></div>
-            </div>
-
-            <div class="dashboard-section">
-                <h3>🏷 Tags</h3>
-                <div id="dashTags" class="tag-cloud"></div>
-            </div>
-
-            <div class="dashboard-empty" id="dashboardEmpty">
-                <div class="empty-icon">📊</div>
-                <div class="empty-text">No data yet</div>
-                <div class="empty-subtext">Scan a folder to see your dashboard</div>
-            </div>
-        </aside>
-
-        <!-- ─── Center: Results Table ─── -->
-        <main class="results-panel">
-            <!-- Filter bar -->
-            <div class="filter-bar">
-                <div class="filter-group">
-                    <span class="filter-icon">🔍</span>
-                    <input type="text" class="filter-input" id="searchInput" placeholder="Search files..." oninput="applyFilters()">
-                </div>
-                <div class="filter-group">
-                    <label>Category</label>
-                    <select class="filter-select" id="filterCategory" onchange="applyFilters()">
-                        <option value="">All</option>
-                    </select>
-                </div>
-                <div class="filter-group">
-                    <label>Action</label>
-                    <select class="filter-select" id="filterAction" onchange="applyFilters()">
-                        <option value="">All</option>
-                        <option value="Keep">Keep</option>
-                        <option value="Delete">Delete</option>
-                        <option value="Archive">Archive</option>
-                        <option value="Review">Review</option>
-                    </select>
-                </div>
-                <div class="filter-group">
-                    <label>Lifecycle</label>
-                    <select class="filter-select" id="filterLifecycle" onchange="applyFilters()">
-                        <option value="">All</option>
-                        <option value="Active">Active</option>
-                        <option value="Dormant">Dormant</option>
-                        <option value="Archived">Archived</option>
-                        <option value="Transient">Transient</option>
-                    </select>
-                </div>
-                <button class="btn btn-sm" onclick="clearFilters()">✕ Clear</button>
-                <span class="result-count" id="resultCount"></span>
-            </div>
-
-            <!-- Table -->
-            <div class="table-container">
-                <table class="results-table" id="resultsTable">
-                    <thead>
-                        <tr>
-                            <th onclick="sortBy('file')" class="sortable">File <span class="sort-arrow" id="sortFile"></span></th>
-                            <th onclick="sortBy('category')" class="sortable">Category <span class="sort-arrow" id="sortCategory"></span></th>
-                            <th onclick="sortBy('subcategory')" class="sortable">Subcategory <span class="sort-arrow" id="sortSubcategory"></span></th>
-                            <th onclick="sortBy('project')" class="sortable">Project <span class="sort-arrow" id="sortProject"></span></th>
-                            <th onclick="sortBy('action')" class="sortable">Action <span class="sort-arrow" id="sortAction"></span></th>
-                            <th onclick="sortBy('importance')" class="sortable">Imp. <span class="sort-arrow" id="sortImportance"></span></th>
-                            <th onclick="sortBy('lifecycle')" class="sortable">Lifecycle <span class="sort-arrow" id="sortLifecycle"></span></th>
-                            <th onclick="sortBy('confidence')" class="sortable">Conf. <span class="sort-arrow" id="sortConfidence"></span></th>
-                            <th>Tags</th>
-                        </tr>
-                    </thead>
-                    <tbody id="resultsBody">
-                        <tr class="empty-row">
-                            <td colspan="9">
-                                <div class="empty-state">
-                                    <div class="empty-icon">📂</div>
-                                    <div class="empty-text">No files analyzed yet</div>
-                                    <div class="empty-subtext">Click "Scan Folder" to get started</div>
-                                </div>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </main>
-
-        <!-- ─── Right: Detail Panel ─── -->
-        <aside class="detail-panel" id="detailPanel">
-            <div class="detail-empty" id="detailEmpty">
-                <div class="empty-icon">👆</div>
-                <div class="empty-text">Select a file</div>
-                <div class="empty-subtext">Click a row to view details</div>
-            </div>
-            <div class="detail-content" id="detailContent" style="display: none;">
-                <div class="detail-header">
-                    <span class="detail-icon">📄</span>
-                    <h3 class="detail-filename" id="detailFilename">filename.txt</h3>
-                </div>
+            
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" onclick="setView('dashboard')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7"/>
+                        <rect x="14" y="3" width="7" height="7"/>
+                        <rect x="14" y="14" width="7" height="7"/>
+                        <rect x="3" y="14" width="7" height="7"/>
+                    </svg>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#" class="nav-item" onclick="setView('files')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                    <span>All Files</span>
+                </a>
+                <a href="#" class="nav-item" onclick="setView('projects')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                    </svg>
+                    <span>Projects</span>
+                </a>
+                <a href="#" class="nav-item" onclick="setView('duplicates')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                        <line x1="9" y1="3" x2="9" y2="21"/>
+                    </svg>
+                    <span>Duplicates</span>
+                </a>
+                <a href="#" class="nav-item" onclick="setView('large')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                    </svg>
+                    <span>Large Files</span>
+                </a>
+                <a href="#" class="nav-item" onclick="setView('recent')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                    <span>Recent Files</span>
+                </a>
+                <a href="#" class="nav-item" onclick="setView('trash')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        <line x1="10" y1="11" x2="10" y2="17"/>
+                        <line x1="14" y1="11" x2="14" y2="17"/>
+                    </svg>
+                    <span>Trash Candidates</span>
+                </a>
                 
-                <div class="detail-section">
-                    <h4>📋 File Info</h4>
-                    <div class="detail-grid">
-                        <div class="detail-row"><span class="detail-label">Path:</span><span class="detail-value" id="detailPath">-</span></div>
-                        <div class="detail-row"><span class="detail-label">Size:</span><span class="detail-value" id="detailSize">-</span></div>
-                        <div class="detail-row"><span class="detail-label">Type:</span><span class="detail-value" id="detailType">-</span></div>
+                <div class="nav-divider"></div>
+                
+                <a href="#" class="nav-item" onclick="setView('queries')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"/>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    </svg>
+                    <span>Queries</span>
+                </a>
+                <a href="#" class="nav-item" onclick="setView('reports')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                        <polyline points="10 9 9 9 8 9"/>
+                    </svg>
+                    <span>Reports</span>
+                </a>
+                <a href="#" class="nav-item" onclick="setView('settings')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                    <span>Settings</span>
+                </a>
+            </nav>
+            
+            <!-- Storage Analyzed -->
+            <div class="storage-widget">
+                <h3>Storage Analyzed</h3>
+                <div class="storage-chart">
+                    <svg viewBox="0 0 120 120" class="circular-chart">
+                        <circle class="circle-bg" cx="60" cy="60" r="54"/>
+                        <circle class="circle-fill" cx="60" cy="60" r="54" 
+                                stroke-dasharray="339.292" stroke-dashoffset="101.788"/>
+                    </svg>
+                    <div class="storage-text">
+                        <div class="storage-value" id="storageTotal">248 GB</div>
+                        <div class="storage-label">Total</div>
                     </div>
                 </div>
-
-                <div class="detail-section">
-                    <h4>🤖 AI Analysis</h4>
-                    <div class="detail-grid">
-                        <div class="detail-row"><span class="detail-label">Summary:</span><span class="detail-value" id="detailSummary">-</span></div>
-                        <div class="detail-row"><span class="detail-label">Category:</span><span class="detail-value" id="detailCategory">-</span></div>
-                        <div class="detail-row"><span class="detail-label">Project:</span><span class="detail-value" id="detailProject">-</span></div>
-                        <div class="detail-row"><span class="detail-label">Action:</span><span class="detail-value" id="detailAction">-</span></div>
-                        <div class="detail-row"><span class="detail-label">Confidence:</span><span class="detail-value" id="detailConfidence">-</span></div>
-                        <div class="detail-row"><span class="detail-label">Lifecycle:</span><span class="detail-value" id="detailLifecycle">-</span></div>
-                        <div class="detail-row"><span class="detail-label">Importance:</span><span class="detail-value" id="detailImportance">-</span></div>
-                        <div class="detail-row"><span class="detail-label">Sentimental:</span><span class="detail-value" id="detailSentimental">-</span></div>
+                <div class="storage-legend">
+                    <div class="legend-item">
+                        <span class="legend-color" style="background: #4a9eff"></span>
+                        <span class="legend-label">Used</span>
+                        <span class="legend-value" id="storageUsed">156 GB (63%)</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-color" style="background: #f44747"></span>
+                        <span class="legend-label">Recommended</span>
+                        <span class="legend-value" id="storageRecommended">42 GB (17%)</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-color" style="background: #4ec9b0"></span>
+                        <span class="legend-label">Duplicates</span>
+                        <span class="legend-value" id="storageDuplicates">28 GB (11%)</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-color" style="background: #888"></span>
+                        <span class="legend-label">Other</span>
+                        <span class="legend-value" id="storageOther">22 GB (9%)</span>
                     </div>
                 </div>
-
-                <div class="detail-section">
-                    <h4>🏷 Tags</h4>
-                    <div class="tag-cloud" id="detailTags"></div>
-                </div>
-
-                <div class="detail-section">
-                    <h4>💡 Reasoning</h4>
-                    <p class="detail-reasoning" id="detailReasoning">-</p>
-                </div>
-
-                <div class="detail-section">
-                    <h4>📝 Preview</h4>
-                    <pre class="detail-preview" id="detailPreview">[Select a file to preview]</pre>
-                </div>
-
-                <div class="detail-actions">
-                    <button class="btn btn-sm" onclick="explainRecommendation()">🤖 Explain</button>
-                    <button class="btn btn-sm" onclick="findSimilar()">🔍 Find Similar</button>
-                    <button class="btn btn-sm" onclick="showInExplorer()">📂 Show in Explorer</button>
-                    <button class="btn btn-sm" onclick="copyPath()">📋 Copy Path</button>
+            </div>
+            
+            <!-- User Profile -->
+            <div class="sidebar-footer">
+                <div class="user-profile">
+                    <div class="user-avatar">J</div>
+                    <div class="user-info">
+                        <div class="user-name">Joshua</div>
+                        <div class="user-status">Local Session</div>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="6 9 12 15 18 9"/>
+                    </svg>
                 </div>
             </div>
         </aside>
+
+        <!-- ─── Main Content ─── -->
+        <div class="main-content">
+            <!-- Dashboard View -->
+            <div id="view-dashboard" class="view active">
+                <!-- Top Header -->
+                <header class="content-header">
+                    <div class="header-left">
+                        <h1>Good afternoon, Joshua 👋</h1>
+                        <p class="header-subtitle">Here's what's happening with your files</p>
+                    </div>
+                    <div class="header-right">
+                        <button class="theme-toggle" onclick="toggleDarkMode()" title="Toggle theme">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                            </svg>
+                        </button>
+                        <button class="btn btn-primary" onclick="pickFolder()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="12" y1="5" x2="12" y2="19"/>
+                                <line x1="5" y1="12" x2="19" y2="12"/>
+                            </svg>
+                            New Scan
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Stats Cards -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-label">Files Analyzed</div>
+                            <div class="stat-value" id="statFilesAnalyzed">3,482</div>
+                            <div class="stat-change positive" id="statFilesChange">+248 since last scan</div>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-label">Projects Detected</div>
+                            <div class="stat-value" id="statProjects">41</div>
+                            <div class="stat-change positive">+3 new projects</div>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                <line x1="9" y1="3" x2="9" y2="21"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-label">Duplicate Files</div>
+                            <div class="stat-value" id="statDuplicates">293</div>
+                            <div class="stat-change negative">28 GB</div>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="3 6 5 6 21 6"/>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-label">Trash Candidates</div>
+                            <div class="stat-value" id="statTrash">87</div>
+                            <div class="stat-change negative">42 GB</div>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card stat-card-accent">
+                        <div class="stat-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="18" y1="20" x2="18" y2="10"/>
+                                <line x1="12" y1="20" x2="12" y2="4"/>
+                                <line x1="6" y1="20" x2="6" y2="14"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-label">Average Importance</div>
+                            <div class="stat-value" id="statImportance">6.7/10</div>
+                            <div class="stat-change positive">Good</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Middle Section -->
+                <div class="middle-section">
+                    <!-- File Categories -->
+                    <div class="categories-card">
+                        <div class="card-header">
+                            <h3>File Categories</h3>
+                            <select class="category-select" onchange="updateCategoryView(this.value)">
+                                <option value="size">By Size</option>
+                                <option value="count">By Count</option>
+                            </select>
+                        </div>
+                        <div class="categories-content">
+                            <div class="donut-chart">
+                                <svg viewBox="0 0 200 200" class="donut-svg">
+                                    <circle class="donut-segment" cx="100" cy="100" r="80" 
+                                            stroke="#a855f7" stroke-width="32"
+                                            stroke-dasharray="502.65 502.65" stroke-dashoffset="0"
+                                            transform="rotate(-90 100 100)"/>
+                                </svg>
+                                <div class="donut-center">
+                                    <div class="donut-value" id="donutTotal">248</div>
+                                    <div class="donut-label">GB Total</div>
+                                </div>
+                            </div>
+                            <div class="categories-table" id="categoriesTable">
+                                <!-- Categories will be populated dynamically -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right Column: Recent Activity + AI Recommendations -->
+                    <div class="right-column">
+                        <!-- Recent Activity -->
+                        <div class="activity-card">
+                            <div class="card-header">
+                                <h3>Recent Activity</h3>
+                                <a href="#" class="view-all">View All</a>
+                            </div>
+                            <div class="activity-list" id="activityList">
+                                <!-- Activity will be populated dynamically -->
+                            </div>
+                        </div>
+
+                        <!-- AI Recommendations -->
+                        <div class="recommendations-card">
+                            <div class="card-header">
+                                <h3>AI Recommendations</h3>
+                                <a href="#" class="view-all">View All</a>
+                            </div>
+                            <div class="recommendations-list" id="recommendationsList">
+                                <!-- Recommendations will be populated dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Scans Table -->
+                <div class="scans-card">
+                    <div class="card-header">
+                        <h3>Recent Scans</h3>
+                        <a href="#" class="view-all">View All</a>
+                    </div>
+                    <div class="table-container">
+                        <table class="scans-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Path</th>
+                                    <th>Files</th>
+                                    <th>Size</th>
+                                    <th>Date</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recentScansBody">
+                                <!-- Recent scans will be populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- All Files View -->
+            <div id="view-files" class="view">
+                <header class="content-header">
+                    <div class="header-left">
+                        <h1>All Files</h1>
+                        <p class="header-subtitle">Browse and filter your analyzed files</p>
+                    </div>
+                    <div class="header-right">
+                        <input type="text" class="query-input" id="searchInput" placeholder="Search files..." onkeyup="debounceFilter()">
+                        <button class="btn btn-primary" onclick="pickFolder()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="12" y1="5" x2="12" y2="19"/>
+                                <line x1="5" y1="12" x2="19" y2="12"/>
+                            </svg>
+                            New Scan
+                        </button>
+                    </div>
+                </header>
+
+                <div class="table-container">
+                    <table class="scans-table">
+                        <thead>
+                            <tr>
+                                <th onclick="sortBy('file')">File <span class="sort-arrow" id="sortFile"></span></th>
+                                <th onclick="sortBy('category')">Category <span class="sort-arrow" id="sortCategory"></span></th>
+                                <th onclick="sortBy('subcategory')">Subcategory <span class="sort-arrow" id="sortSubcategory"></span></th>
+                                <th onclick="sortBy('project')">Project <span class="sort-arrow" id="sortProject"></span></th>
+                                <th onclick="sortBy('action')">Action <span class="sort-arrow" id="sortAction"></span></th>
+                                <th onclick="sortBy('importance')">Importance <span class="sort-arrow" id="sortImportance"></span></th>
+                                <th onclick="sortBy('lifecycle')">Lifecycle <span class="sort-arrow" id="sortLifecycle"></span></th>
+                                <th onclick="sortBy('confidence')">Confidence <span class="sort-arrow" id="sortConfidence"></span></th>
+                                <th>Tags</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resultsBody">
+                            <tr class="empty-row">
+                                <td colspan="9">
+                                    <div class="empty-state">
+                                        <div class="empty-icon">📂</div>
+                                        <div class="empty-text">No files analyzed yet</div>
+                                        <div class="empty-subtext">Click "Scan Folder" to get started</div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Projects View -->
+            <div id="view-projects" class="view">
+                <header class="content-header">
+                    <div class="header-left">
+                        <h1>Projects</h1>
+                        <p class="header-subtitle">Detected project groups in your files</p>
+                    </div>
+                    <div class="header-right">
+                        <span class="text-muted" id="projectCount">0 projects</span>
+                    </div>
+                </header>
+                <div class="projects-grid" id="projectsGrid">
+                    <div class="empty-state">
+                        <div class="empty-icon">📁</div>
+                        <div class="empty-text">No projects detected yet</div>
+                        <div class="empty-subtext">Scan a folder to detect projects</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Duplicates View -->
+            <div id="view-duplicates" class="view">
+                <header class="content-header">
+                    <div class="header-left">
+                        <h1>Duplicates</h1>
+                        <p class="header-subtitle">Files with identical content</p>
+                    </div>
+                    <div class="header-right">
+                        <span class="text-muted" id="duplicateCount">0 duplicate groups</span>
+                    </div>
+                </header>
+                <div class="table-container">
+                    <table class="scans-table">
+                        <thead>
+                            <tr>
+                                <th>Preview</th>
+                                <th>Files</th>
+                                <th>Total Size</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="duplicatesBody">
+                            <tr class="empty-row">
+                                <td colspan="4">
+                                    <div class="empty-state">
+                                        <div class="empty-icon">📄</div>
+                                        <div class="empty-text">No duplicates found</div>
+                                        <div class="empty-subtext">Analyze files to detect duplicates</div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Large Files View -->
+            <div id="view-large" class="view">
+                <header class="content-header">
+                    <div class="header-left">
+                        <h1>Large Files</h1>
+                        <p class="header-subtitle">Files taking up significant space</p>
+                    </div>
+                    <div class="header-right">
+                        <span class="text-muted" id="largeFileStats">0 files</span>
+                    </div>
+                </header>
+                <div class="table-container">
+                    <table class="scans-table">
+                        <thead>
+                            <tr>
+                                <th onclick="sortBy('file')">File <span class="sort-arrow" id="sortLargeFile"></span></th>
+                                <th onclick="sortBy('category')">Category <span class="sort-arrow" id="sortLargeCategory"></span></th>
+                                <th onclick="sortBy('size')">Size <span class="sort-arrow" id="sortLargeSize"></span></th>
+                                <th onclick="sortBy('importance')">Importance <span class="sort-arrow" id="sortLargeImportance"></span></th>
+                                <th onclick="sortBy('confidence')">Confidence <span class="sort-arrow" id="sortLargeConfidence"></span></th>
+                            </tr>
+                        </thead>
+                        <tbody id="largeFilesBody">
+                            <tr class="empty-row">
+                                <td colspan="5">
+                                    <div class="empty-state">
+                                        <div class="empty-icon">💾</div>
+                                        <div class="empty-text">No files analyzed yet</div>
+                                        <div class="empty-subtext">Scan a folder to see large files</div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Recent Files View -->
+            <div id="view-recent" class="view">
+                <header class="content-header">
+                    <div class="header-left">
+                        <h1>Recent Files</h1>
+                        <p class="header-subtitle">Recently modified files</p>
+                    </div>
+                </header>
+                <div class="table-container">
+                    <table class="scans-table">
+                        <thead>
+                            <tr>
+                                <th>File</th>
+                                <th>Category</th>
+                                <th>Modified</th>
+                                <th>Size</th>
+                                <th>Importance</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recentFilesBody">
+                            <tr class="empty-row">
+                                <td colspan="5">
+                                    <div class="empty-state">
+                                        <div class="empty-icon">⏱</div>
+                                        <div class="empty-text">No files analyzed yet</div>
+                                        <div class="empty-subtext">Scan a folder to see recent files</div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Trash Candidates View -->
+            <div id="view-trash" class="view">
+                <header class="content-header">
+                    <div class="header-left">
+                        <h1>Trash Candidates</h1>
+                        <p class="header-subtitle">Files recommended for deletion</p>
+                    </div>
+                    <div class="header-right">
+                        <span class="text-muted" id="trashStats">0 candidates • 0 GB</span>
+                    </div>
+                </header>
+                <div class="table-container">
+                    <table class="scans-table">
+                        <thead>
+                            <tr>
+                                <th onclick="sortBy('file')">File <span class="sort-arrow" id="sortTrashFile"></span></th>
+                                <th onclick="sortBy('category')">Category <span class="sort-arrow" id="sortTrashCategory"></span></th>
+                                <th onclick="sortBy('confidence')">Confidence <span class="sort-arrow" id="sortTrashConfidence"></span></th>
+                                <th>Reasoning</th>
+                                <th onclick="sortBy('size')">Size <span class="sort-arrow" id="sortTrashSize"></span></th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trashBody">
+                            <tr class="empty-row">
+                                <td colspan="6">
+                                    <div class="empty-state">
+                                        <div class="empty-icon">🗑</div>
+                                        <div class="empty-text">No trash candidates found</div>
+                                        <div class="empty-subtext">Files with high confidence Delete/Review will appear here</div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Queries View -->
+            <div id="view-queries" class="view">
+                <header class="content-header">
+                    <div class="header-left">
+                        <h1>Queries</h1>
+                        <p class="header-subtitle">Ask questions about your files</p>
+                    </div>
+                </header>
+                <div class="queries-history" id="queriesHistory">
+                    <div class="empty-state">
+                        <div class="empty-icon">❓</div>
+                        <div class="empty-text">No queries yet</div>
+                        <div class="empty-subtext">Use the query bar at the bottom to ask questions</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reports View -->
+            <div id="view-reports" class="view">
+                <header class="content-header">
+                    <div class="header-left">
+                        <h1>Reports</h1>
+                        <p class="header-subtitle">Saved scan reports</p>
+                    </div>
+                    <div class="header-right">
+                        <button class="btn btn-primary" onclick="saveReport()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                                <line x1="12" y1="18" x2="8" y2="18"/>
+                                <line x1="12" y1="14" x2="8" x2="16" y2="14"/>
+                            </svg>
+                            Save Current Report
+                        </button>
+                    </div>
+                </header>
+                <div class="table-container">
+                    <table class="scans-table" id="reportsTable">
+                        <thead>
+                            <tr>
+                                <th>Filename</th>
+                                <th>Size</th>
+                                <th>Modified</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reportsBody">
+                            <tr class="empty-row">
+                                <td colspan="4">
+                                    <div class="empty-state">
+                                        <div class="empty-icon">📄</div>
+                                        <div class="empty-text">No saved reports</div>
+                                        <div class="empty-subtext">Run a scan and save the report to see it here</div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Settings View -->
+            <div id="view-settings" class="view">
+                <header class="content-header">
+                    <div class="header-left">
+                        <h1>Settings</h1>
+                        <p class="header-subtitle">Configure AI File Manager</p>
+                    </div>
+                </header>
+                <div class="settings-container">
+                    <div class="settings-section">
+                        <h3>AI Provider</h3>
+                        <div class="setting-item">
+                            <label>Provider</label>
+                            <select class="setting-input" id="aiProvider" onchange="updateSetting('provider', this.value)">
+                                <option value="ollama">Ollama (Local)</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="anthropic">Anthropic</option>
+                            </select>
+                        </div>
+                        <div class="setting-item">
+                            <label>Model</label>
+                            <input type="text" class="setting-input" id="aiModel" placeholder="e.g., llama3.2, gpt-4" onchange="updateSetting('model', this.value)">
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Danger Zone</h3>
+                        <div class="setting-item">
+                            <button class="btn" onclick="loadReport()">📂 Load Report</button>
+                            <span class="text-muted">Load a previously saved report</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- ─── Query Bar ─── -->
     <footer class="query-bar">
         <div class="query-input-group">
-            <span class="query-icon">🔍</span>
+            <span class="query-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"/>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+            </span>
             <input type="text" class="query-input" id="queryInput" placeholder="Ask a question about your files..." onkeydown="if(event.key==='Enter')submitQuery()">
             <button class="btn btn-primary btn-ask" onclick="submitQuery()">Ask AI</button>
         </div>
@@ -250,6 +668,26 @@
         </div>
         <div class="query-result" id="queryResult" style="display: none;"></div>
     </footer>
+
+    <!-- ─── Progress Overlay ─── -->
+    <div class="modal-overlay" id="progressOverlay" style="display: none;">
+        <div class="modal-card">
+            <h3 id="progressTitle">Scanning...</h3>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-stats">
+                <span id="progressCount">0 of 0 files (0%)</span>
+                <span id="progressFile"></span>
+            </div>
+            <div class="progress-details">
+                <span id="progressCached">⚡ 0 cached</span>
+                <span id="progressNew">🆕 0 new</span>
+                <span id="progressErrors">✕ 0 errors</span>
+                <span id="progressTime">⏱ 0s</span>
+            </div>
+        </div>
+    </div>
 
     <!-- ─── Modal for folder picker ─── -->
     <div class="modal-overlay" id="folderModal" style="display: none;">

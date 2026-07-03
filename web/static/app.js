@@ -18,6 +18,7 @@ let state = {
     sortAsc: true,
     scanId: null,
     darkMode: localStorage.getItem('theme') !== 'light',
+    queryHistory: [],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -28,7 +29,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Apply saved theme
     if (!state.darkMode) {
         document.documentElement.setAttribute('data-theme', 'light');
-        document.getElementById('darkModeBtn').textContent = '☀️';
     }
     
     // Check server status
@@ -41,7 +41,268 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         })
         .catch(err => console.error('Server not ready:', err));
+    
+    // Load dashboard data
+    loadDashboardData();
+    loadRecentActivity();
+    loadRecommendations();
+    loadCategoryDistribution();
+    
+    // Load reports for the reports view
+    loadReportsList();
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Navigation & View Management
+// ═══════════════════════════════════════════════════════════════════════════
+
+let currentView = 'dashboard';
+
+function setView(view) {
+    currentView = view;
+    console.log('Switching to view:', view);
+    
+    // Update active nav item
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.remove('active');
+        const onclick = item.getAttribute('onclick');
+        if (onclick && onclick.includes(`'${view}'`)) {
+            item.classList.add('active');
+        }
+    });
+    
+    // Hide all views
+    document.querySelectorAll('.view').forEach(v => {
+        v.classList.remove('active');
+    });
+    
+    // Show the selected view
+    const viewEl = document.getElementById(`view-${view}`);
+    if (viewEl) {
+        viewEl.classList.add('active');
+    }
+    
+    // Load view-specific data
+    switch(view) {
+        case 'dashboard':
+            loadDashboardData();
+            loadRecentActivity();
+            loadRecommendations();
+            loadCategoryDistribution();
+            break;
+        case 'files':
+            renderTable(state.results);
+            break;
+        case 'projects':
+            renderProjects();
+            break;
+        case 'duplicates':
+            renderDuplicates();
+            break;
+        case 'large':
+            renderLargeFiles();
+            break;
+        case 'recent':
+            renderRecentFiles();
+            break;
+        case 'trash':
+            renderTrashCandidates();
+            break;
+        case 'queries':
+            renderQueriesHistory();
+            break;
+        case 'reports':
+            loadReportsList();
+            break;
+        case 'settings':
+            // Settings are static, no dynamic loading needed
+            break;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Dashboard Data
+// ═══════════════════════════════════════════════════════════════════════════
+
+function loadDashboardData() {
+    fetch('/api/dashboard')
+        .then(r => r.json())
+        .then(data => {
+            if (data.empty) return;
+            
+            // Update stats cards
+            document.getElementById('statFilesAnalyzed').textContent = (data.total_files || 0).toLocaleString();
+            document.getElementById('statProjects').textContent = data.projects_detected || data.projects || 0;
+            document.getElementById('statDuplicates').textContent = data.duplicate_files || data.duplicates || 0;
+            document.getElementById('statTrash').textContent = data.trash_candidates || 0;
+            
+            if (data.average_importance) {
+                document.getElementById('statImportance').textContent = data.average_importance.toFixed(1) + '/10';
+            }
+            
+            // Update storage widget
+            if (data.total_size_bytes) {
+                document.getElementById('storageTotal').textContent = formatSize(data.total_size_bytes);
+            }
+            if (data.duplicates_size_bytes) {
+                document.getElementById('storageDuplicates').textContent = formatSize(data.duplicates_size_bytes) + ' saved';
+            }
+            if (data.trash_size_bytes) {
+                const trashPct = ((data.trash_size_bytes / (data.total_size_bytes || 1)) * 100).toFixed(0);
+                document.getElementById('storageRecommended').textContent = formatSize(data.trash_size_bytes) + ` (${trashPct}%)`;
+            }
+            
+            // Update changes with dynamic data
+            if (data.files_change) {
+                document.getElementById('statFilesChange').textContent = `+${data.files_change} since last scan`;
+            }
+            if (data.projects_change) {
+                const projectsChangeEl = document.querySelector('#view-dashboard .stat-card:nth-child(2) .stat-change');
+                if (projectsChangeEl) projectsChangeEl.textContent = `+${data.projects_change} new projects`;
+            }
+            if (data.duplicates_size) {
+                document.querySelector('#view-dashboard .stat-card:nth-child(3) .stat-change').textContent = 
+                    formatSize(data.duplicates_size);
+            }
+            if (data.trash_size) {
+                document.querySelector('#view-dashboard .stat-card:nth-child(4) .stat-change').textContent = 
+                    formatSize(data.trash_size);
+            }
+        })
+        .catch(err => console.error('Dashboard error:', err));
+}
+
+function formatSize(bytes) {
+    if (!bytes) return '0 GB';
+    const gb = bytes / (1024 * 1024 * 1024);
+    if (gb >= 1) return gb.toFixed(1) + ' GB';
+    const mb = bytes / (1024 * 1024);
+    if (mb >= 1) return mb.toFixed(1) + ' MB';
+    const kb = bytes / 1024;
+    return kb.toFixed(1) + ' KB';
+}
+
+function loadRecentActivity() {
+    // Simulate loading recent activity (replace with actual API call if needed)
+    const activities = [
+        { type: 'success', title: 'Scan completed', desc: 'Documents • 2,483 files', time: '2m ago' },
+        { type: 'info', title: 'Report saved', desc: 'My Files Report.json', time: '15m ago' },
+        { type: 'primary', title: 'Query executed', desc: 'Inactive Python projects', time: '1h ago' },
+        { type: 'warning', title: 'Files renamed', desc: '8 files renamed', time: '2h ago' },
+        { type: 'secondary', title: 'Duplicates found', desc: '293 duplicates (28 GB)', time: '3h ago' },
+    ];
+    
+    const container = document.getElementById('activityList');
+    if (!container) return;
+    
+    container.innerHTML = activities.map(act => `
+        <div class="activity-item">
+            <div class="activity-icon ${act.type}">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    ${getActivityIcon(act.type)}
+                </svg>
+            </div>
+            <div class="activity-content">
+                <div class="activity-title">${act.title}</div>
+                <div class="activity-desc">${act.desc}</div>
+            </div>
+            <div class="activity-time">${act.time}</div>
+        </div>
+    `).join('');
+}
+
+function getActivityIcon(type) {
+    const icons = {
+        success: '<polyline points="20 6 9 17 4 12"/>',
+        info: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
+        primary: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+        warning: '<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 4 21l.5-3.5L17 3z"/>',
+        secondary: '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/>'
+    };
+    return icons[type] || '<circle cx="12" cy="12" r="10"/>';
+}
+
+function loadRecommendations() {
+    // Simulate loading recommendations (replace with actual API call if needed)
+    const recommendations = [
+        { 
+            type: 'red', 
+            title: '17 duplicate screenshots', 
+            desc: 'You can save 4.2 GB',
+            icon: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>'
+        },
+        { 
+            type: 'blue', 
+            title: '8 inactive coding projects', 
+            desc: 'Not accessed in 6+ months',
+            icon: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'
+        },
+        { 
+            type: 'orange', 
+            title: '43 temporary downloads', 
+            desc: 'You can save 3.1 GB',
+            icon: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'
+        },
+        { 
+            type: 'green', 
+            title: '2 large video files', 
+            desc: 'You can save 8.7 GB',
+            icon: '<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>'
+        },
+    ];
+    
+    const container = document.getElementById('recommendationsList');
+    if (!container) return;
+    
+    container.innerHTML = recommendations.map(rec => `
+        <div class="recommendation-item" onclick="showRecommendationDetail('${escapeHtml(rec.title)}', '${escapeHtml(rec.desc)}')">
+            <div class="rec-icon" style="background: var(--${rec.type}-bg)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${rec.icon}</svg>
+            </div>
+            <div class="rec-content">
+                <div class="rec-title">${rec.title}</div>
+                <div class="rec-desc">${rec.desc}</div>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="rec-arrow">
+                <polyline points="9 18 15 12 9 6"/>
+            </svg>
+        </div>
+    `).join('');
+}
+
+function loadCategoryDistribution() {
+    fetch('/api/dashboard/categories')
+        .then(r => r.json())
+        .then(data => {
+            if (data.categories && data.categories.length > 0) {
+                const table = document.getElementById('categoriesTable');
+                if (table) {
+                    const total = data.categories.reduce((sum, cat) => sum + cat.size_bytes, 0);
+                    table.innerHTML = data.categories.map((cat, idx) => {
+                        const pct = total > 0 ? Math.round((cat.size_bytes / total) * 100) : 0;
+                        return `
+                            <div class="category-row">
+                                <span class="cat-color" style="background: ${cat.color || '#888'}"></span>
+                                <span class="cat-name">${cat.name}</span>
+                                <span class="cat-files">${cat.files?.toLocaleString() || '-'}</span>
+                                <span class="cat-size">${formatSize(cat.size_bytes)}</span>
+                                <div class="cat-bar"><div class="cat-bar-fill" style="width: ${pct}%"></div></div>
+                                <span class="cat-pct">${pct}%</span>
+                            </div>
+                        `;
+                    }).join('');
+                    
+                    document.getElementById('donutTotal').textContent = Math.round(total / (1024 * 1024 * 1024));
+                }
+            }
+        })
+        .catch(err => console.error('Categories error:', err));
+}
+
+function updateCategoryView(value) {
+    // Toggle between size and count view
+    console.log('Category view changed:', value);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Theme
@@ -52,7 +313,6 @@ function toggleDarkMode() {
     const theme = state.darkMode ? 'dark' : 'light';
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('theme', theme);
-    document.getElementById('darkModeBtn').textContent = state.darkMode ? '🌙' : '☀️';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -61,7 +321,6 @@ function toggleDarkMode() {
 
 function openModal(id) {
     document.getElementById(id).style.display = 'flex';
-    // Focus the input
     const input = document.querySelector(`#${id} .modal-input`);
     if (input) setTimeout(() => input.focus(), 100);
 }
@@ -78,35 +337,11 @@ function pickFolder() {
     openModal('folderModal');
 }
 
-function pickFile() {
-    openModal('fileModal');
-}
-
-function loadReport() {
-    openModal('reportModal');
-}
-
 function startScan() {
     const path = document.getElementById('folderPathInput').value.trim();
     if (!path) return;
     closeModal('folderModal');
-    document.getElementById('pathDisplay').textContent = path;
     beginScan(path);
-}
-
-function startFileAnalysis() {
-    const path = document.getElementById('filePathInput').value.trim();
-    if (!path) return;
-    closeModal('fileModal');
-    document.getElementById('pathDisplay').textContent = path;
-    analyzeSingleFile(path);
-}
-
-function startLoadReport() {
-    const path = document.getElementById('reportPathInput').value.trim();
-    if (!path) return;
-    closeModal('reportModal');
-    loadReportFile(path);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -140,7 +375,6 @@ function pollScanProgress(scanId) {
                 updateProgress(data);
                 
                 if (data.status === 'done') {
-                    // Scan complete — load results
                     if (data.results) {
                         state.results = data.results;
                         state.errors = data.error_details || [];
@@ -153,77 +387,12 @@ function pollScanProgress(scanId) {
                     hideProgress();
                     showError('Scan error');
                 } else {
-                    // Still scanning — poll again
                     setTimeout(poll, 500);
                 }
             })
             .catch(() => setTimeout(poll, 1000));
     };
     poll();
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Single File Analysis
-// ═══════════════════════════════════════════════════════════════════════════
-
-function analyzeSingleFile(filePath) {
-    showProgress('Analyzing...');
-    
-    fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: filePath }),
-    })
-    .then(r => r.json())
-    .then(data => {
-        hideProgress();
-        if (data.analysis) {
-            state.results = [{
-                file: filePath.split('/').pop().split('\\').pop(),
-                path: filePath,
-                ...data.analysis
-            }];
-            renderAll();
-            updateFileCount(1);
-        }
-    })
-    .catch(err => {
-        hideProgress();
-        showError('Analysis failed: ' + err.message);
-    });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Reports
-// ═══════════════════════════════════════════════════════════════════════════
-
-function loadReportFile(filePath) {
-    fetch('/api/reports/load', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: filePath }),
-    })
-    .then(r => r.json())
-    .then(data => {
-        state.results = data.results || [];
-        state.errors = data.errors || [];
-        state.summary = data.summary || null;
-        renderAll();
-        updateFileCount(state.results.length);
-        document.getElementById('pathDisplay').textContent = filePath;
-    })
-    .catch(err => showError('Failed to load report: ' + err.message));
-}
-
-function saveReport() {
-    fetch('/api/reports/save', { method: 'POST' })
-        .then(r => r.json())
-        .then(data => {
-            if (data.path) {
-                showQueryResult(`✅ Report saved: ${data.filename}`);
-            }
-        })
-        .catch(err => showError('Failed to save: ' + err.message));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -244,117 +413,12 @@ function loadResults() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Rendering
+// Rendering - Table
 // ═══════════════════════════════════════════════════════════════════════════
-
-function renderAll() {
-    renderDashboard();
-    renderTable(state.results);
-    updateCategoryFilter();
-}
-
-function renderDashboard() {
-    const empty = document.getElementById('dashboardEmpty');
-    const cards = document.getElementById('dashboardCards');
-    const sections = document.querySelectorAll('.dashboard-section');
-    
-    if (!state.results || state.results.length === 0) {
-        empty.style.display = 'block';
-        cards.style.display = 'none';
-        sections.forEach(s => s.style.display = 'none');
-        return;
-    }
-    
-    empty.style.display = 'none';
-    cards.style.display = 'grid';
-    sections.forEach(s => s.style.display = 'block');
-    
-    // Fetch dashboard data
-    fetch('/api/dashboard')
-        .then(r => r.json())
-        .then(data => {
-            if (data.empty) return;
-            
-            document.getElementById('dashTotalFiles').textContent = data.total_files || 0;
-            document.getElementById('dashSafeDelete').textContent = data.safe_to_delete || 0;
-            document.getElementById('dashNeedsReview').textContent = data.needs_review || 0;
-            
-            // Fetch duplicates count
-            fetch('/api/duplicates')
-                .then(r => r.json())
-                .then(d => {
-                    document.getElementById('dashDuplicates').textContent = d.duplicate_groups?.length || 0;
-                })
-                .catch(() => {});
-            
-            // Action breakdown
-            renderStatBars('dashActions', data.action_breakdown || {}, {
-                'Keep': 'var(--green)',
-                'Delete': 'var(--red)',
-                'Archive': 'var(--blue)',
-                'Review': 'var(--orange)',
-            });
-            
-            // Categories
-            const catContainer = document.getElementById('dashCategories');
-            catContainer.innerHTML = '';
-            const cats = data.categories || {};
-            Object.entries(cats).slice(0, 8).forEach(([cat, count]) => {
-                const div = document.createElement('div');
-                div.className = 'category-item';
-                div.innerHTML = `<span>${getCategoryIcon(cat)} ${cat}</span><span class="cat-count">${count}</span>`;
-                catContainer.appendChild(div);
-            });
-            
-            // Confidence
-            renderStatBars('dashConfidence', {
-                'High (85-100)': data.confidence_distribution?.high || 0,
-                'Medium (60-84)': data.confidence_distribution?.medium || 0,
-                'Low (0-59)': data.confidence_distribution?.low || 0,
-            }, {
-                'High (85-100)': 'var(--green)',
-                'Medium (60-84)': 'var(--orange)',
-                'Low (0-59)': 'var(--red)',
-            });
-            
-            // Tags
-            const tagContainer = document.getElementById('dashTags');
-            tagContainer.innerHTML = '';
-            const tags = data.tag_cloud || {};
-            Object.entries(tags).slice(0, 20).forEach(([tag, count]) => {
-                const display = tag.includes(':') ? tag.split(':')[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : tag;
-                const span = document.createElement('span');
-                span.className = 'tag';
-                span.textContent = `${display} (${count})`;
-                tagContainer.appendChild(span);
-            });
-        })
-        .catch(err => console.error('Dashboard error:', err));
-}
-
-function renderStatBars(containerId, data, colors) {
-    const container = document.getElementById(containerId);
-    container.innerHTML = '';
-    
-    const total = Object.values(data).reduce((a, b) => a + b, 0) || 1;
-    
-    Object.entries(data).forEach(([label, count]) => {
-        const pct = Math.round(count / total * 100);
-        const color = colors[label] || 'var(--accent)';
-        
-        const item = document.createElement('div');
-        item.className = 'stat-bar-item';
-        item.innerHTML = `
-            <span class="stat-bar-label">${label}</span>
-            <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${pct}%;background:${color}"></div></div>
-            <span class="stat-bar-count">${count}</span>
-        `;
-        container.appendChild(item);
-    });
-}
 
 function renderTable(results) {
     const tbody = document.getElementById('resultsBody');
+    if (!tbody) return;
     tbody.innerHTML = '';
     
     if (!results || results.length === 0) {
@@ -376,7 +440,6 @@ function renderTable(results) {
         const tr = document.createElement('tr');
         tr.dataset.index = index;
         tr.onclick = () => selectFile(index);
-        tr.ondblclick = () => showDetailModal(entry);
         
         const action = entry.action || 'Review';
         const confidence = entry.confidence || 0;
@@ -385,7 +448,6 @@ function renderTable(results) {
         const tags = Array.isArray(entry.tags) ? entry.tags.slice(0, 3).map(t => {
             return t.includes(':') ? t.split(':')[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : t;
         }).join(', ') : '';
-        if (Array.isArray(entry.tags) && entry.tags.length > 3) tags += ` +${entry.tags.length - 3}`;
         
         tr.innerHTML = `
             <td title="${escapeHtml(entry.file || '')}">${escapeHtml(entry.file || '')}</td>
@@ -404,88 +466,361 @@ function renderTable(results) {
     updateResultCount(results.length);
 }
 
-function selectFile(index) {
-    const entry = state.results[index];
-    if (!entry) return;
+// ═══════════════════════════════════════════════════════════════════════════
+// Rendering - Projects View
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderProjects() {
+    const container = document.getElementById('projectsGrid');
+    if (!container) return;
     
-    state.selectedFile = entry;
-    
-    // Highlight row
-    document.querySelectorAll('#resultsBody tr').forEach((tr, i) => {
-        tr.classList.toggle('selected', i === index);
+    // Group files by project
+    const projects = {};
+    state.results.forEach(r => {
+        if (r.project && r.project !== 'Unknown' && r.project !== '') {
+            if (!projects[r.project]) {
+                projects[r.project] = [];
+            }
+            projects[r.project].push(r);
+        }
     });
     
-    // Show in detail panel
-    showDetail(entry);
+    if (Object.keys(projects).length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">📁</div>
+                <div class="empty-text">No projects detected yet</div>
+                <div class="empty-subtext">Scan a folder to detect projects</div>
+            </div>
+        `;
+        document.getElementById('projectCount').textContent = '0 projects';
+        return;
+    }
+    
+    document.getElementById('projectCount').textContent = `${Object.keys(projects).length} projects`;
+    
+    container.innerHTML = Object.entries(projects).map(([name, files]) => {
+        const size = files.reduce((sum, f) => sum + (f.size_bytes || 0), 0);
+        return `
+            <div class="project-card">
+                <div class="project-header">
+                    <div class="project-icon">📁</div>
+                    <div class="project-info">
+                        <div class="project-name">${escapeHtml(name)}</div>
+                        <div class="project-stats">${files.length} files • ${formatSize(size)}</div>
+                    </div>
+                </div>
+                <div class="project-files">
+                    ${files.slice(0, 5).map(f => `
+                        <div class="project-file-item" title="${escapeHtml(f.file)}">
+                            <span class="file-icon">${getCategoryIcon(f.category)}</span>
+                            <span class="file-name">${escapeHtml(f.file)}</span>
+                        </div>
+                    `).join('')}
+                    ${files.length > 5 ? `<div class="more-files">+${files.length - 5} more files</div>` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
 }
 
-function showDetail(entry) {
-    document.getElementById('detailEmpty').style.display = 'none';
-    document.getElementById('detailContent').style.display = 'block';
+// ═══════════════════════════════════════════════════════════════════════════
+// Rendering - Duplicates View
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderDuplicates() {
+    const tbody = document.getElementById('duplicatesBody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
     
-    document.getElementById('detailFilename').textContent = entry.file || 'Unknown';
-    document.getElementById('detailPath').textContent = entry.path || '-';
-    document.getElementById('detailSize').textContent = entry.size_human || '-';
-    document.getElementById('detailType').textContent = entry.extension || '-';
-    document.getElementById('detailSummary').textContent = entry.summary || 'No summary';
-    document.getElementById('detailCategory').textContent = `${getCategoryIcon(entry.category)} ${entry.category || 'Other'}`;
-    document.getElementById('detailProject').textContent = entry.project || 'Not detected';
-    
-    const action = entry.action || 'Review';
-    document.getElementById('detailAction').innerHTML = `<span class="action-badge action-${action}">${getActionIcon(action)} ${action}</span>`;
-    
-    const conf = entry.confidence || 0;
-    const confClass = conf >= 85 ? 'conf-high' : conf >= 60 ? 'conf-medium' : 'conf-low';
-    document.getElementById('detailConfidence').innerHTML = `<span class="conf-badge ${confClass}">${conf}%</span>`;
-    
-    document.getElementById('detailLifecycle').textContent = `${getLifecycleIcon(entry.lifecycle)} ${entry.lifecycle || 'Unknown'}`;
-    document.getElementById('detailImportance').textContent = `${entry.importance || '-'}/10`;
-    document.getElementById('detailSentimental').textContent = `${entry.sentimental_value || '-'}/10`;
-    
-    // Tags
-    const tagContainer = document.getElementById('detailTags');
-    tagContainer.innerHTML = '';
-    const tags = Array.isArray(entry.tags) ? entry.tags : [];
-    if (tags.length === 0) {
-        tagContainer.innerHTML = '<span class="text-muted">No tags</span>';
-    } else {
-        tags.forEach(tag => {
-            const display = tag.includes(':') ? tag.split(':')[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : tag;
-            const span = document.createElement('span');
-            span.className = 'tag';
-            span.textContent = display;
-            tagContainer.appendChild(span);
+    fetch('/api/duplicates')
+        .then(r => r.json())
+        .then(data => {
+            const groups = data.duplicate_groups || [];
+            document.getElementById('duplicateCount').textContent = `${groups.length} duplicate groups`;
+            
+            if (groups.length === 0) {
+                tbody.innerHTML = `
+                    <tr class="empty-row">
+                        <td colspan="4">
+                            <div class="empty-state">
+                                <div class="empty-icon">📄</div>
+                                <div class="empty-text">No duplicates found</div>
+                                <div class="empty-subtext">Analyze files to detect duplicates</div>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            groups.forEach((group, idx) => {
+                const tr = document.createElement('tr');
+                const totalSize = group.files.reduce((sum, f) => sum + (f.size_bytes || 0), 0) / group.count;
+                tr.innerHTML = `
+                    <td><span class="conf-badge">Group ${idx + 1}</span></td>
+                    <td>${group.count} files</td>
+                    <td>${formatSize(totalSize * group.count)}</td>
+                    <td>
+                        <div class="action-buttons">
+                            <button class="btn-icon-sm" title="View files" onclick="showQueryResult('Files: ${group.files.map(f => f.name).join(', ')}')">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                    <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        })
+        .catch(err => {
+            tbody.innerHTML = `
+                <tr class="empty-row">
+                    <td colspan="4">
+                        <div class="empty-state">
+                            <div class="empty-icon">⚠</div>
+                            <div class="empty-text">Error loading duplicates</div>
+                        </div>
+                    </td>
+                </tr>
+            `;
         });
-    }
-    
-    document.getElementById('detailReasoning').textContent = entry.reasoning || 'No reasoning provided.';
-    
-    // Preview (fetch file content via API)
-    const preview = document.getElementById('detailPreview');
-    preview.textContent = '[Loading preview...]';
-    if (entry.path) {
-        // We can't read files from browser — show a note
-        preview.textContent = '[File preview available for text files via the API]\n\n' + 
-            JSON.stringify(entry, null, 2).slice(0, 1000);
-    }
 }
 
-function showDetailModal(entry) {
-    const body = document.getElementById('queryResultBody');
-    body.textContent = JSON.stringify(entry, null, 2);
-    document.getElementById('queryResultModal').querySelector('h3').textContent = `📄 ${entry.file || 'File Details'}`;
-    openModal('queryResultModal');
+// ═══════════════════════════════════════════════════════════════════════════
+// Rendering - Large Files View
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderLargeFiles() {
+    const tbody = document.getElementById('largeFilesBody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    
+    // Sort by size, get top 50
+    const sorted = [...state.results]
+        .filter(r => r.size_bytes)
+        .sort((a, b) => (b.size_bytes || 0) - (a.size_bytes || 0))
+        .slice(0, 50);
+    
+    document.getElementById('largeFileStats').textContent = `${sorted.length} large files`;
+    
+    if (sorted.length === 0) {
+        tbody.innerHTML = `
+            <tr class="empty-row">
+                <td colspan="5">
+                    <div class="empty-state">
+                        <div class="empty-icon">💾</div>
+                        <div class="empty-text">No files analyzed yet</div>
+                        <div class="empty-subtext">Scan a folder to see large files</div>
+                    </div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    sorted.forEach(entry => {
+        const tr = document.createElement('tr');
+        const action = entry.action || 'Review';
+        const confidence = entry.confidence || 0;
+        const confClass = confidence >= 85 ? 'conf-high' : confidence >= 60 ? 'conf-medium' : 'conf-low';
+        
+        tr.innerHTML = `
+            <td title="${escapeHtml(entry.file || '')}">${escapeHtml(entry.file || '')}</td>
+            <td>${getCategoryIcon(entry.category)} ${escapeHtml(entry.category || '')}</td>
+            <td>${formatSize(entry.size_bytes)}</td>
+            <td>${entry.importance || '-'}/10</td>
+            <td><span class="conf-badge ${confClass}">${confidence}%</span></td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Rendering - Recent Files View
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderRecentFiles() {
+    const tbody = document.getElementById('recentFilesBody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    
+    // Files sorted by modification time (simulated - would use mtime from API)
+    const sorted = [...state.results].slice(0, 50);
+    
+    if (sorted.length === 0) {
+        tbody.innerHTML = `
+            <tr class="empty-row">
+                <td colspan="5">
+                    <div class="empty-state">
+                        <div class="empty-icon">⏱</div>
+                        <div class="empty-text">No files analyzed yet</div>
+                        <div class="empty-subtext">Scan a folder to see recent files</div>
+                    </div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    sorted.forEach(entry => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${escapeHtml(entry.file || '')}</td>
+            <td>${getCategoryIcon(entry.category)} ${escapeHtml(entry.category || '')}</td>
+            <td>Today</td>
+            <td>${formatSize(entry.size_bytes)}</td>
+            <td>${entry.importance || '-'}/10</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Rendering - Trash Candidates View
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderTrashCandidates() {
+    const tbody = document.getElementById('trashBody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    
+    // Get files marked for deletion or review with high confidence
+    const trash = state.results.filter(r => {
+        const action = r.action || '';
+        const conf = r.confidence || 0;
+        return (action === 'Delete' || action === 'Review') && conf >= 70;
+    }).sort((a, b) => (b.size_bytes || 0) - (a.size_bytes || 0));
+    
+    const totalSize = trash.reduce((sum, r) => sum + (r.size_bytes || 0), 0);
+    document.getElementById('trashStats').textContent = `${trash.length} candidates • ${formatSize(totalSize)}`;
+    
+    if (trash.length === 0) {
+        tbody.innerHTML = `
+            <tr class="empty-row">
+                <td colspan="6">
+                    <div class="empty-state">
+                        <div class="empty-icon">🗑</div>
+                        <div class="empty-text">No trash candidates found</div>
+                        <div class="empty-subtext">Files with high confidence Delete/Review will appear here</div>
+                    </div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    trash.forEach(entry => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${escapeHtml(entry.file || '')}</td>
+            <td>${getCategoryIcon(entry.category)} ${escapeHtml(entry.category || '')}</td>
+            <td><span class="conf-badge ${entry.confidence >= 85 ? 'conf-high' : 'conf-medium'}">${entry.confidence || 0}%</span></td>
+            <td title="${escapeHtml(entry.reasoning || '')}">${escapeHtml(entry.reasoning || '').substring(0, 60)}${entry.reasoning && entry.reasoning.length > 60 ? '...' : ''}</td>
+            <td>${formatSize(entry.size_bytes)}</td>
+            <td><span class="action-badge action-${entry.action}">${getActionIcon(entry.action)} ${entry.action}</span></td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Rendering - Queries History View
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderQueriesHistory() {
+    const container = document.getElementById('queriesHistory');
+    if (!container) return;
+    
+    if (state.queryHistory.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">❓</div>
+                <div class="empty-text">No queries yet</div>
+                <div class="empty-subtext">Use the query bar at the bottom to ask questions</div>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = state.queryHistory.map(q => `
+        <div class="query-history-item">
+            <div class="query-question">"${escapeHtml(q.question)}"</div>
+            <div class="query-answer">${escapeHtml(q.answer)}</div>
+        </div>
+    `).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Rendering - Reports View
+// ═══════════════════════════════════════════════════════════════════════════
+
+function loadReportsList() {
+    fetch('/api/reports/list')
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('reportsBody');
+            if (!tbody) return;
+            
+            const reports = data.reports || [];
+            
+            if (reports.length === 0) {
+                tbody.innerHTML = `
+                    <tr class="empty-row">
+                        <td colspan="4">
+                            <div class="empty-state">
+                                <div class="empty-icon">📄</div>
+                                <div class="empty-text">No saved reports</div>
+                                <div class="empty-subtext">Run a scan and save the report to see it here</div>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            tbody.innerHTML = reports.map(report => {
+                const date = new Date(report.modified * 1000);
+                return `
+                    <tr>
+                        <td>${escapeHtml(report.filename)}</td>
+                        <td>${formatSize(report.size)}</td>
+                        <td>${date.toLocaleDateString()} ${date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn-icon-sm" title="Load" onclick="loadReportFile('${escapeHtml(report.path)}')">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M5 3a2 2 0 1 0 4 0 2 0 1 0 0-4 0"/>
+                                        <path d="M19 19V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v14"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        })
+        .catch(err => console.error('Failed to load reports:', err));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Filtering
 // ═══════════════════════════════════════════════════════════════════════════
 
+let filterTimeout;
+
+function debounceFilter() {
+    clearTimeout(filterTimeout);
+    filterTimeout = setTimeout(applyFilters, 300);
+}
+
 function applyFilters() {
     const search = document.getElementById('searchInput').value;
-    const category = document.getElementById('filterCategory').value;
-    const action = document.getElementById('filterAction').value;
-    const lifecycle = document.getElementById('filterLifecycle').value;
+    const category = document.getElementById('filterCategory')?.value || '';
+    const action = document.getElementById('filterAction')?.value || '';
+    const lifecycle = document.getElementById('filterLifecycle')?.value || '';
     
     const body = {};
     if (search) body.search = search;
@@ -507,30 +842,10 @@ function applyFilters() {
 
 function clearFilters() {
     document.getElementById('searchInput').value = '';
-    document.getElementById('filterCategory').value = '';
-    document.getElementById('filterAction').value = '';
-    document.getElementById('filterLifecycle').value = '';
+    document.getElementById('filterCategory')?.setAttribute('value', '');
+    document.getElementById('filterAction')?.setAttribute('value', '');
+    document.getElementById('filterLifecycle')?.setAttribute('value', '');
     renderTable(state.results);
-    updateResultCount(state.results.length);
-}
-
-function updateCategoryFilter() {
-    const select = document.getElementById('filterCategory');
-    const current = select.value;
-    
-    const categories = new Set();
-    state.results.forEach(r => {
-        if (r.category) categories.add(r.category);
-    });
-    
-    select.innerHTML = '<option value="">All</option>';
-    [...categories].sort().forEach(cat => {
-        const opt = document.createElement('option');
-        opt.value = cat;
-        opt.textContent = cat;
-        select.appendChild(opt);
-    });
-    select.value = current;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -554,7 +869,7 @@ function sortBy(column) {
         let va = a[column] ?? '';
         let vb = b[column] ?? '';
         
-        if (column === 'confidence' || column === 'importance') {
+        if (column === 'confidence' || column === 'importance' || column === 'size_bytes') {
             va = Number(va) || 0;
             vb = Number(vb) || 0;
         } else {
@@ -571,10 +886,16 @@ function sortBy(column) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Query
+// Query Functions
 // ═══════════════════════════════════════════════════════════════════════════
 
 function setQuery(text) {
+    // If this is called with a view parameter, use setView instead
+    if (['dashboard', 'files', 'projects', 'duplicates', 'large', 'recent', 'trash', 'queries', 'reports', 'settings'].includes(text)) {
+        setView(text);
+        return;
+    }
+    
     document.getElementById('queryInput').value = text;
     submitQuery();
 }
@@ -585,7 +906,7 @@ function submitQuery() {
     
     const resultDiv = document.getElementById('queryResult');
     resultDiv.style.display = 'block';
-    resultDiv.textContent = '🤔 Thinking...';
+    resultDiv.textContent = '🤖 Thinking...';
     
     fetch('/api/query', {
         method: 'POST',
@@ -599,6 +920,15 @@ function submitQuery() {
             text += '\n\nMatching files:\n' + data.matching_files.map(f => `  • ${f}`).join('\n');
         }
         resultDiv.textContent = text;
+        
+        // Add to query history
+        state.queryHistory.unshift({
+            question: question,
+            answer: data.answer || 'No answer.'
+        });
+        if (currentView === 'queries') {
+            renderQueriesHistory();
+        }
     })
     .catch(err => {
         resultDiv.textContent = '⚠ Error: ' + err.message;
@@ -608,63 +938,63 @@ function submitQuery() {
 function showQueryResult(text) {
     const body = document.getElementById('queryResultBody');
     body.textContent = text;
-    document.getElementById('queryResultModal').querySelector('h3').textContent = '🤖 Query Result';
+    document.getElementById('queryResultModal').querySelector('h3').textContent = '🤖 Result';
     openModal('queryResultModal');
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Detail Actions
-// ═══════════════════════════════════════════════════════════════════════════
-
-function explainRecommendation() {
-    const entry = state.selectedFile;
-    if (!entry) return;
-    
-    const text = `Recommendation: ${entry.action}\nConfidence: ${entry.confidence}%\n\nReasoning:\n${entry.reasoning || 'No reasoning provided.'}\n\nSuggested filename: ${entry.suggested_filename || 'N/A'}`;
-    showQueryResult(text);
+function showRecommendationDetail(title, desc) {
+    showQueryResult(`${title}\n\n${desc}`);
 }
 
-function findSimilar() {
-    const entry = state.selectedFile;
-    if (!entry || !entry.path) return;
+// ═══════════════════════════════════════════════════════════════════════════
+// File Actions
+// ═══════════════════════════════════════════════════════════════════════════
+
+function selectFile(index) {
+    const entry = state.results[index];
+    if (!entry) return;
     
-    fetch('/api/similar', {
+    state.selectedFile = entry;
+    
+    // Highlight row
+    document.querySelectorAll('#resultsBody tr').forEach((tr, i) => {
+        tr.classList.toggle('selected', i === index);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Reports
+// ═══════════════════════════════════════════════════════════════════════════
+
+function saveReport() {
+    fetch('/api/reports/save', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.path) {
+                showQueryResult(`✅ Report saved: ${data.filename}`);
+                loadReportsList();
+            }
+        })
+        .catch(err => showError('Failed to save: ' + err.message));
+}
+
+function loadReportFile(filePath) {
+    fetch('/api/reports/load', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: entry.path }),
+        body: JSON.stringify({ path: filePath }),
     })
     .then(r => r.json())
     .then(data => {
-        const similar = data.similar || [];
-        if (similar.length === 0) {
-            showQueryResult(`No similar files found for "${entry.file}".`);
-        } else {
-            let text = `Files similar to "${entry.file}":\n\n`;
-            similar.forEach(([a, b, score]) => {
-                const other = a.file === entry.file ? b : a;
-                text += `  • ${other.file} (score: ${(score * 100).toFixed(0)}%)\n`;
-            });
-            showQueryResult(text);
-        }
+        state.results = data.results || [];
+        state.errors = data.errors || [];
+        state.summary = data.summary || null;
+        renderAll();
+        updateFileCount(state.results.length);
+        setView('dashboard');
+        showQueryResult(`✅ Report loaded: ${filePath.split('/').pop()}`);
     })
-    .catch(err => showQueryResult('Error: ' + err.message));
-}
-
-function showInExplorer() {
-    const entry = state.selectedFile;
-    if (!entry || !entry.path) return;
-    // This would need a special API endpoint to open Explorer
-    showQueryResult(`📂 File location:\n${entry.path}\n\n(Open in Explorer requires a desktop API call)`);
-}
-
-function copyPath() {
-    const entry = state.selectedFile;
-    if (!entry || !entry.path) return;
-    navigator.clipboard.writeText(entry.path).then(() => {
-        showQueryResult('📋 Path copied to clipboard!');
-    }).catch(() => {
-        showQueryResult('📋 ' + entry.path);
-    });
+    .catch(err => showError('Failed to load report: ' + err.message));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -712,16 +1042,21 @@ function hideProgress() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function updateFileCount(count) {
-    document.getElementById('fileCount').textContent = `${count} files`;
+    const fileCountEl = document.getElementById('fileCount');
+    if (fileCountEl) {
+        fileCountEl.textContent = `${count} files`;
+    }
 }
 
 function updateResultCount(count) {
-    const total = state.results.length;
-    const el = document.getElementById('resultCount');
-    if (count === total) {
-        el.textContent = `${total} files`;
-    } else {
-        el.textContent = `${count} of ${total} files`;
+    const resultCountEl = document.getElementById('resultCount');
+    if (resultCountEl) {
+        const total = state.results.length;
+        if (count === total) {
+            resultCountEl.textContent = `${total} files`;
+        } else {
+            resultCountEl.textContent = `${count} of ${total} files`;
+        }
     }
 }
 
@@ -731,6 +1066,13 @@ function showError(message) {
     resultDiv.textContent = '⚠ ' + message;
     resultDiv.style.color = 'var(--red)';
     setTimeout(() => { resultDiv.style.color = ''; }, 3000);
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 function getCategoryIcon(category) {
@@ -751,8 +1093,15 @@ function getLifecycleIcon(lifecycle) {
     return { 'Active': '🟢', 'Dormant': '🟡', 'Archived': '🔵', 'Transient': '⚪', 'Unknown': '⚫' }[lifecycle] || '⚫';
 }
 
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+function renderAll() {
+    renderTable(state.results);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Settings
+// ═══════════════════════════════════════════════════════════════════════════
+
+function updateSetting(key, value) {
+    console.log('Setting changed:', key, value);
+    // Settings would be sent to backend API to be saved
 }

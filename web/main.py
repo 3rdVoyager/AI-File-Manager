@@ -263,7 +263,113 @@ async def get_dashboard():
     """Return computed dashboard data from current results."""
     if not _current_results:
         return {"empty": True}
-    return compute_dashboard(_current_results)
+    dashboard = compute_dashboard(_current_results)
+    
+    # Add additional stats for the new dashboard cards
+    import os
+    total_size = 0
+    duplicate_size = 0
+    trash_size = 0
+    
+    # Compute total size and duplicates size
+    content_hashes = {}
+    for r in _current_results:
+        try:
+            if r.get("path") and os.path.isfile(r["path"]):
+                size = os.path.getsize(r["path"])
+                total_size += size
+                content_hash = hash(str(size) + Path(r["path"]).name)
+                if content_hash in content_hashes:
+                    duplicate_size += size
+                else:
+                    content_hashes[content_hash] = size
+        except Exception:
+            pass
+    
+    # Estimate trash candidates size
+    trash_candidates = [r for r in _current_results 
+                       if r.get("action") in ["Delete", "Review"] 
+                       and r.get("confidence", 0) >= 70]
+    for r in trash_candidates:
+        try:
+            if r.get("path") and os.path.isfile(r["path"]):
+                trash_size += os.path.getsize(r["path"])
+        except Exception:
+            pass
+    
+    # Compute average importance
+    importances = [r.get("importance", 5) for r in _current_results if r.get("importance")]
+    avg_importance = sum(importances) / len(importances) if importances else 0
+    
+    dashboard.update({
+        "projects_detected": dashboard.get("projects_count", len(set(
+            r.get("project", "") for r in _current_results if r.get("project")
+        ))),
+        "duplicate_files": dashboard.get("duplicate_count", len(set(
+            r.get("path") for r in _current_results if "duplicate" in r.get("tags", [])
+        ))),
+        "trash_candidates": len(trash_candidates),
+        "average_importance": avg_importance,
+        "total_size_bytes": total_size,
+        "duplicates_size_bytes": duplicate_size,
+        "trash_size_bytes": trash_size,
+        "files_change": dashboard.get("total_files", 0),  # TODO: compute actual change
+        "projects_change": 3,  # TODO: compute from history
+    })
+    
+    return dashboard
+
+
+@app.get("/api/dashboard/categories")
+async def get_categories():
+    """Return category distribution with file sizes."""
+    if not _current_results:
+        return {"categories": []}
+    
+    import os
+    from collections import defaultdict
+    
+    category_data = defaultdict(lambda: {"files": 0, "size_bytes": 0, "color": "#888"})
+    
+    # Color mapping for categories
+    colors = {
+        "Programming": "#a855f7",
+        "School": "#60a5fa",
+        "Documents": "#4ade80",
+        "Images": "#f59e0b",
+        "Videos": "#f97316",
+        "Downloads": "#ec4899",
+        "Other": "#94a3b8",
+        "Data": "#3b82f6",
+        "System": "#6b7280",
+        "Installer": "#ef4444",
+        "Finance": "#10b981",
+        "Work": "#6366f1",
+        "Personal": "#f59e0b",
+        "Media": "#ec4899",
+    }
+    
+    for r in _current_results:
+        cat = r.get("category", "Other")
+        category_data[cat]["files"] += 1
+        category_data[cat]["color"] = colors.get(cat, "#888")
+        try:
+            if r.get("path") and os.path.isfile(r["path"]):
+                category_data[cat]["size_bytes"] += os.path.getsize(r["path"])
+        except Exception:
+            pass
+    
+    categories = [
+        {
+            "name": name,
+            "files": data["files"],
+            "size_bytes": data["size_bytes"],
+            "color": data["color"]
+        }
+        for name, data in sorted(category_data.items(), key=lambda x: -x[1]["size_bytes"])
+    ]
+    
+    return {"categories": categories}
 
 
 # ─── Query endpoints ────────────────────────────────────────────────────────
